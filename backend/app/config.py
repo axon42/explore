@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     gemini_api_key: SecretStr = SecretStr("")
     gemini_model: str = Field(default="gemini-3.1-flash-lite", pattern=r"^[a-zA-Z0-9.-]+$")
     analysis_max_calls: int = Field(default=100, ge=1, le=1000)
+    analysis_timeout_seconds: int = Field(default=45, ge=5, le=60)
     backend_port: int = Field(default=8000, ge=1024, le=65535)
     frontend_port: int = Field(default=5173, ge=1024, le=65535)
     subscriber_queue_size: int = Field(default=128, ge=1)

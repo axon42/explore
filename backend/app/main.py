@@ -96,16 +96,24 @@ def create_app(settings: Settings | None = None):
     async def get_session(session_id: str):
         return await service.read(storage.snapshot, session_id)
 
-    @app.post("/sessions/{session_id}/stop")
-    async def stop(session_id: str):
+    async def stop_session(session_id: str, finalize: bool = True):
         session = await service.stop(session_id)
+        active = pipeline.report_workers.get(session_id)
+        if finalize and active and not active.done():
+            return session
         await pipeline.stop(session_id)
         task = replays.get(session_id)
         if task:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
+        if finalize:
+            await pipeline.request_report(session_id)
         log("session_stopped", session_id=session_id)
         return session
+
+    @app.post("/sessions/{session_id}/stop")
+    async def stop(session_id: str):
+        return await stop_session(session_id)
 
     @app.get("/fixtures")
     async def fixtures():
@@ -123,7 +131,7 @@ def create_app(settings: Settings | None = None):
     async def inject(session_id: str, event: TranscriptEvent):
         return await service.ingest(session_id, event)
 
-    app.include_router(router(service, pipeline, stop))
+    app.include_router(router(service, pipeline, stop_session))
 
     async def run_demo(session_id: str):
         try:

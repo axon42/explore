@@ -7,13 +7,22 @@ import logging
 import time
 from pathlib import Path
 from typing import Literal
+from uuid import NAMESPACE_URL, uuid5
 
 from pydantic import BaseModel, Field
 
-from .analysis import PROMPT_VERSION, GeminiAnalyzer, MockAnalyzer
+from .analysis import PROMPT_VERSION, GeminiAnalyzer, MockAnalyzer, ProviderError
+from .analysis_state import (
+    AnalysisStrategy,
+    ContextBuilder,
+    TriggerPolicy,
+    reduce_memory,
+    validate_proposal,
+)
 from .concurrency import blocking
 from .discovery import Discovery
 from .models import DomainError, TranscriptEvent
+from .overview import OverviewStrategy
 
 FIXTURE = json.loads(
     (Path(__file__).resolve().parents[1] / "fixtures/discovery-v1.json").read_text()
@@ -26,30 +35,24 @@ class PlaybackCommand(BaseModel):
     objective: str = Field(default=FIXTURE["objective"], max_length=2000)
 
 
-def finalized(snapshot):
-    # A hard character budget protects costs even for large injected segments.
-    result, remaining = [], 16000
-    for segment in reversed(snapshot["segments"]):
-        if not segment["is_final"]:
-            continue
-        item = {k: segment[k] for k in ("segment_id", "revision", "speaker_id", "text")}
-        item["text"] = item["text"][:remaining]
-        result.append(item)
-        remaining -= len(item["text"])
-        if remaining <= 0 or len(result) >= 30:
-            break
-    return list(reversed(result))
-
-
 class Pipeline:
     def __init__(self, service, settings):
         self.service, self.settings = service, settings
         self.provider = (
             MockAnalyzer()
             if settings.analysis_provider == "mock"
-            else GeminiAnalyzer(settings.gemini_api_key.get_secret_value(), settings.gemini_model)
+            else GeminiAnalyzer(
+                settings.gemini_api_key.get_secret_value(),
+                settings.gemini_model,
+                timeout=settings.analysis_timeout_seconds - 1,
+            )
         )
         self.states, self.locks, self.wakes, self.workers, self.players = {}, {}, {}, {}, {}
+        self.trigger = TriggerPolicy()
+        self.context_builder = ContextBuilder()
+        self.strategy = AnalysisStrategy()
+        self.overview_strategy = OverviewStrategy()
+        self.report_workers = {}
         self.closed = False
         self.discovery = Discovery(service.storage)
 
@@ -201,104 +204,162 @@ class Pipeline:
         wake = self.wakes[sid]
         while True:
             await wake.wait()
-            wake.clear()
-            started = time.monotonic()
-            await asyncio.sleep(0.4)
-            async with self.lock(sid):
-                state = await self.state(sid)
-                snapshot = await self.service.read(self.service.storage.snapshot, sid)
-                if snapshot["session"]["status"] != "live":
-                    continue
-                segments = finalized(snapshot)
-                if not segments:
-                    continue
-                wake.clear()  # This snapshot includes all events delivered during debounce.
-                meeting_context = await self.service.read(self.discovery.context, sid)
-                context = {
-                    "objective": meeting_context["brief"].get("objective") or state["objective"],
-                    "meeting": meeting_context,
-                    "segments": segments,
-                }
-                if state["calls"] >= self.settings.analysis_max_calls:
-                    state.update(
-                        analysis_status="limited", error="Per-session analysis call limit reached."
-                    )
-                    await self.save(sid)
-                    continue
-                if (
-                    self.settings.analysis_provider == "gemini"
-                    and not self.settings.gemini_api_key.get_secret_value()
-                ):
-                    state.update(
-                        analysis_status="unconfigured",
-                        error="Set GEMINI_API_KEY on the server and restart.",
-                    )
-                    await self.save(sid)
-                    continue
-                state.update(analysis_status="analyzing", result=None, error="")
-                state["calls"] += 1
-                await self.save(sid)
-            try:
-                result, usage = await asyncio.wait_for(self.provider.analyze(context), 25)
-                if result.question and (
-                    not result.source_ids
-                    or not set(result.source_ids) <= {s["segment_id"] for s in segments}
-                ):
-                    raise ValueError("Invalid evidence references")
-                for finding in result.findings:
-                    if not finding.source_ids or not set(finding.source_ids) <= {
-                        s["segment_id"] for s in segments
-                    }:
-                        raise ValueError("Invalid finding evidence")
-                error = ""
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                result, usage = None, {}
-                error = (
-                    "Analysis failed. Check server configuration or provider quota; "
-                    "the next turn will try again."
+            await self.trigger.collect(wake)
+            await self.process_batch(sid)
+
+    async def process_batch(self, sid, closing=False):
+        started = time.monotonic()
+        async with self.lock(sid):
+            state = await self.state(sid)
+            snapshot = await self.service.read(self.service.storage.snapshot, sid)
+            if snapshot["session"]["status"] != "live" and not closing:
+                return False
+            meeting_context = await self.service.read(self.discovery.context, sid)
+            memory = await self.service.read(self.discovery.memory, sid)
+            context = self.context_builder.build(
+                snapshot, meeting_context, memory, state["objective"]
+            )
+            if context is None or not context["segments"]:
+                return False
+            context["session_id"] = sid
+            context["meeting_id"] = snapshot["session"]["meeting_id"]
+            context["job_id"] = str(uuid5(NAMESPACE_URL, json.dumps(context, sort_keys=True)))
+            if state["calls"] >= self.settings.analysis_max_calls:
+                state.update(
+                    analysis_status="limited", error="Per-session analysis call limit reached."
                 )
-            async with self.lock(sid):
-                async with self.service.lock:
-                    current = await blocking(self.service.storage.snapshot, sid)
-                    latest_context = await blocking(self.discovery.context, sid)
-                    stale = (
-                        current["session"]["status"] != "live"
-                        or finalized(current) != segments
-                        or latest_context["version"] != meeting_context["version"]
+                await self.save(sid)
+                return False
+            if (
+                self.settings.analysis_provider == "gemini"
+                and not self.settings.gemini_api_key.get_secret_value()
+            ):
+                state.update(
+                    analysis_status="unconfigured",
+                    error="Set GEMINI_API_KEY on the server and restart.",
+                )
+                await self.save(sid)
+                return False
+            state.update(analysis_status="analyzing", result=None, error="")
+            state["calls"] += 1
+            await self.save(sid)
+        try:
+            result, usage = await asyncio.wait_for(
+                self.strategy.analyze(self.provider, context),
+                self.settings.analysis_timeout_seconds,
+            )
+            validate_proposal(result, context)
+            error = ""
+        except asyncio.CancelledError:
+            raise
+        except ProviderError as exc:
+            result, usage = None, {}
+            error = str(exc)
+        except TimeoutError:
+            result, usage = None, {}
+            error = (
+                f"Analysis exceeded the {self.settings.analysis_timeout_seconds}-second deadline."
+            )
+        except ValueError:
+            result, usage = None, {}
+            error = "Analysis output contains invalid evidence or question references."
+        except Exception:
+            result, usage = None, {}
+            error = "Analysis failed. Check configuration or quota; retry or deliver another turn."
+        async with self.lock(sid):
+            async with self.service.lock:
+                current = await blocking(self.service.storage.snapshot, sid)
+                latest_context = await blocking(self.discovery.context, sid)
+                revisions = {s["segment_id"]: s["revision"] for s in current["segments"]}
+                stale = (
+                    (current["session"]["status"] != "live" and not closing)
+                    or any(
+                        revisions.get(s["segment_id"]) != s["revision"] for s in context["segments"]
                     )
-                    run = {
-                        "input_version": snapshot["version"],
-                        "source_revisions": {s["segment_id"]: s["revision"] for s in segments},
-                        "prompt_version": PROMPT_VERSION,
-                        "model": "simulated"
-                        if self.settings.analysis_provider == "mock"
-                        else self.settings.gemini_model,
-                        "latency_ms": round((time.monotonic() - started) * 1000),
-                        "usage": usage,
-                        "stale": stale,
-                        "error": error,
-                        "suggestion": result.model_dump() if result else None,
-                    }
-                    state["runs"].append(run)
-                    state["runs"] = state["runs"][-100:]
-                    state.update(
-                        analysis_status="waiting" if stale else "error" if error else "ready",
-                        result=None if stale else run,
-                        error=error if not stale else "",
+                    or latest_context["version"] != meeting_context["version"]
+                )
+                updated = None
+                if not stale and not error:
+                    updated = reduce_memory(memory, current, context, result)
+                    updated["overview"] = self.overview_strategy.build(updated, result.summary)
+                    pending = any(
+                        s["is_final"] and updated["coverage"].get(s["segment_id"]) != s["revision"]
+                        for s in current["segments"]
                     )
-                    await blocking(
-                        self.discovery.record_run,
-                        sid,
-                        context,
-                        self.settings.analysis_provider,
-                        run,
-                    )
-                    await blocking(self.service.storage.save_experiment, sid, state)
+                    if pending or closing:
+                        # New speech may already cover the proposed question. Reconsider
+                        # with the next batch; retain useful state rather than starving it.
+                        result = result.model_copy(update={"question": "", "source_ids": []})
+                    if pending and not closing:
+                        self.wakes[sid].set()
+                elif stale and not closing:
+                    self.wakes[sid].set()
+                run = {
+                    "input_version": snapshot["version"],
+                    "source_revisions": {
+                        s["segment_id"]: s["revision"] for s in context["segments"]
+                    },
+                    "prompt_version": PROMPT_VERSION,
+                    "model": "simulated"
+                    if self.settings.analysis_provider == "mock"
+                    else self.settings.gemini_model,
+                    "latency_ms": round((time.monotonic() - started) * 1000),
+                    "usage": usage,
+                    "stale": stale,
+                    "error": error,
+                    "suggestion": result.model_dump() if result else None,
+                }
+                state["runs"].append(run)
+                state["runs"] = state["runs"][-100:]
+                state.update(
+                    analysis_status="waiting" if stale else "error" if error else "ready",
+                    result=None if stale else run,
+                    error=error if not stale else "",
+                )
+                await blocking(
+                    self.discovery.record_run,
+                    sid,
+                    context,
+                    self.settings.analysis_provider,
+                    run,
+                    updated,
+                )
+                await blocking(self.service.storage.save_experiment, sid, state)
+                return updated is not None
+
+    async def request_report(self, sid):
+        from .reports import Reports
+
+        repo = Reports(self.service.storage)
+        async with self.lock(sid):
+            if sid in self.report_workers and not self.report_workers[sid].done():
+                return
+            await self.service.read(repo.job, sid, "pending", "")
+            self.report_workers[sid] = asyncio.create_task(self.finalize(sid))
+            self.report_workers[sid].add_done_callback(lambda task: self.worker_done(sid, task))
+
+    async def finalize(self, sid):
+        from .reports import Reports
+
+        repo = Reports(self.service.storage)
+        try:
+            await self.service.read(repo.job, sid, "generating", "")
+            # The same bounded batch strategy drains all previously unprocessed dialogue.
+            while await self.process_batch(sid, closing=True):
+                pass
+            await self.service.read(repo.generate, sid, self.settings.analysis_provider)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            await self.service.read(
+                repo.job,
+                sid,
+                "failed",
+                "Report incomplete. Check analysis status and retry finalization.",
+            )
 
     async def stop(self, sid):
-        tasks = [d.pop(sid) for d in (self.players, self.workers) if sid in d]
+        tasks = [d.pop(sid) for d in (self.players, self.workers, self.report_workers) if sid in d]
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
@@ -309,5 +370,5 @@ class Pipeline:
 
     async def close(self):
         self.closed = True
-        for sid in set(self.players) | set(self.workers):
+        for sid in set(self.players) | set(self.workers) | set(self.report_workers):
             await self.stop(sid)

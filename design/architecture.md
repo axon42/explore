@@ -15,6 +15,21 @@
 - Sequential 800 ms polling keeps the initial integration simple; existing WebSockets remain available. Selection stays in the browser; meeting data stays in SQLite.
 
 ## Deferred
-Cross-meeting agents/context brain, embeddings, automatic answer detection, auth/remote access and audio integrations. Gemini adapter is available but a real-key smoke test is pending. Default analysis remains explicitly simulated.
+Cross-meeting agents/context brain, embeddings, automatic answer detection, auth/remote access and audio integrations. Gemini passed a real synthetic integration check. Default repository configuration remains mock; the local ignored `.env` enables Gemini.
 
 [Data model](../docs/data-model.md) · [Pipeline](../docs/pipeline.md)
+
+## Analysis and reports
+[Live analysis](live-analysis.md) now has replaceable batching, context, reasoning, validation and
+formatting components with durable meeting memory. The [report design](meeting-reports.md) is
+implemented through backend APIs for participant mappings, full transcript exports, shared generated
+note sections, immutable final reports and evidence-backed Mermaid source. Existing UI is preserved;
+dedicated controls and real Gemini evaluation remain separate work.
+
+[Implementation/API reference](../docs/analysis.md) · [Coding agent rules](../AGENTS.md)
+
+## Follow-up after Gemini connection verification
+- Group overview gaps and automation hypotheses under their related workflows, with explicit
+  relationships in the analysis data instead of relying on adjacent cards or color alone.
+- Revisit the theme toward the user's requested higher-contrast, lighter Gumloop-inspired appearance.
+  No theme/layout work in the API integration step.

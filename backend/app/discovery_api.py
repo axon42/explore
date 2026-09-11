@@ -4,10 +4,12 @@ import asyncio
 from typing import Literal
 
 from fastapi import APIRouter
-from pydantic import BaseModel, ConfigDict, Field
+from fastapi.responses import Response
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .discovery import Discovery
 from .models import DomainError
+from .reports import Reports, report_markdown, transcript_markdown
 
 
 class StrictBody(BaseModel):
@@ -51,9 +53,28 @@ class QuestionUpdate(StrictBody):
     status: Literal["queued", "asked", "answered"]
 
 
+class Participant(StrictBody):
+    speaker_id: str = Field(min_length=1, max_length=200)
+    name: str = Field(default="", max_length=200)
+    interview_role: Literal["interviewer", "customer", "observer", "unknown"] = "unknown"
+    job_role: str = Field(default="", max_length=200)
+
+
+class ParticipantsUpdate(StrictBody):
+    revision: int = Field(ge=0)
+    participants: list[Participant] = Field(max_length=30)
+
+    @model_validator(mode="after")
+    def unique_speakers(self):
+        if len({p.speaker_id for p in self.participants}) != len(self.participants):
+            raise ValueError("Duplicate speaker IDs")
+        return self
+
+
 def router(service, pipeline, stop_session):
     api = APIRouter()
     repo = Discovery(service.storage)
+    reports = Reports(service.storage)
     mutation = asyncio.Lock()
 
     @api.get("/workspaces")
@@ -114,7 +135,7 @@ def router(service, pipeline, stop_session):
     async def stop_meeting(mid):
         detail = await service.read(repo.detail, mid)
         sid = detail["session"]["id"]
-        await stop_session(sid)
+        await stop_session(sid, False)
         pipeline.states.pop(sid, None)
         pipeline.wakes.pop(sid, None)
 
@@ -133,5 +154,60 @@ def router(service, pipeline, stop_session):
             for item in await service.read(repo.meetings, wid):
                 await stop_meeting(item["id"])
             return await service.read(repo.clear_workspace, wid)
+
+    @api.get("/meetings/{mid}/analysis")
+    async def analysis(mid: str):
+        return await service.read(reports.live, mid)
+
+    @api.get("/meetings/{mid}/participants")
+    async def participants(mid: str):
+        return await service.read(reports.participants, mid)
+
+    @api.put("/meetings/{mid}/participants")
+    async def update_participants(mid: str, body: ParticipantsUpdate):
+        async with mutation:
+            result = await service.read(
+                reports.participants,
+                mid,
+                body.revision,
+                [p.model_dump() for p in body.participants],
+            )
+            await changed(mid)
+            return result
+
+    @api.get("/meetings/{mid}/transcript/export")
+    async def export_transcript(mid: str, format: Literal["json", "markdown"] = "json"):
+        source = await service.read(reports.export, mid)
+        if format == "json":
+            return source
+        return Response(
+            transcript_markdown(source),
+            media_type="text/markdown",
+            headers={"Content-Disposition": 'attachment; filename="transcript.md"'},
+        )
+
+    @api.post("/meetings/{mid}/finalize", status_code=202)
+    async def finalize(mid: str, body: ResetRun):
+        async with mutation:
+            detail = await service.read(repo.detail, mid)
+            if detail["session"]["id"] != body.session_id:
+                raise DomainError("conflict", "Session changed. Refresh before finalizing.")
+            await stop_session(body.session_id)
+            return await service.read(reports.list, mid)
+
+    @api.get("/meetings/{mid}/reports")
+    async def report_list(mid: str):
+        return await service.read(reports.list, mid)
+
+    @api.get("/meetings/{mid}/reports/{rid}")
+    async def report(mid: str, rid: str, format: Literal["json", "markdown"] = "json"):
+        saved = await service.read(reports.get, mid, rid)
+        if format == "json":
+            return saved
+        return Response(
+            report_markdown(saved),
+            media_type="text/markdown",
+            headers={"Content-Disposition": 'attachment; filename="report.md"'},
+        )
 
     return api

@@ -3,6 +3,7 @@
 import json
 from uuid import uuid4
 
+from .analysis_state import empty_memory
 from .models import DomainError
 from .storage import now
 
@@ -82,6 +83,14 @@ class Discovery:
                 "brief": json.loads(brief[0]),
                 "notes": notes,
                 "previous_questions": questions,
+                "participants": json.loads(row[0])
+                if (
+                    row := db.execute(
+                        "SELECT payload FROM meeting_participants WHERE meeting_id=?",
+                        (meeting["id"],),
+                    ).fetchone()
+                )
+                else [],
             }
 
     def detail(self, mid):
@@ -123,6 +132,10 @@ class Discovery:
                 ]
                 for f in findings:
                     f["evidence"] = self.evidence(db, "finding", f["id"])
+            state_row = db.execute(
+                "SELECT payload FROM analysis_state WHERE session_id=?", (sid,)
+            ).fetchone()
+            overview = json.loads(state_row[0]).get("overview", {}) if state_row else {}
             return {
                 "meeting": meeting,
                 "session": dict(session),
@@ -130,11 +143,18 @@ class Discovery:
                 "brief_revision": brief_row["revision"],
                 "questions": questions,
                 "findings": findings,
-                "overview": json.loads(run["output_json"]).get("suggestion", {}).get("summary", "")
-                if run
-                else "",
-                "overview_input_version": run["input_version"] if run else None,
-                "overview_context_version": run["context_version"] if run else None,
+                "overview": overview.get("summary")
+                or (
+                    json.loads(run["output_json"]).get("suggestion", {}).get("summary", "")
+                    if run
+                    else ""
+                ),
+                "overview_input_version": overview.get(
+                    "input_version", run["input_version"] if run else None
+                ),
+                "overview_context_version": overview.get(
+                    "context_version", run["context_version"] if run else None
+                ),
                 "notes": [
                     dict(r)
                     for r in db.execute(
@@ -230,11 +250,27 @@ class Discovery:
                 )
             return require(db, "questions", qid)
 
-    def record_run(self, sid, context, provider, run):
+    def record_run(self, sid, context, provider, run, memory=None):
         with self.storage.connection() as db:
             db.execute("BEGIN IMMEDIATE")
             require(db, "sessions", sid)
-            rid = uid()
+            rid = context.get("job_id") or uid()
+            if db.execute("SELECT 1 FROM analysis_runs WHERE id=?", (rid,)).fetchone():
+                # Failed attempts retain their audit record; a successful retry is a new
+                # attempt, while replaying an accepted job must not apply its patch twice.
+                prior = db.execute(
+                    "SELECT output_json FROM analysis_runs WHERE id=?", (rid,)
+                ).fetchone()
+                previous = json.loads(prior[0])
+                if not previous["stale"] and not previous["error"]:
+                    return
+                rid = uid()
+            if memory is not None:
+                db.execute(
+                    "INSERT INTO analysis_state VALUES (?, ?) ON CONFLICT(session_id) "
+                    "DO UPDATE SET payload=excluded.payload",
+                    (sid, json.dumps(memory)),
+                )
             db.execute(
                 "INSERT INTO analysis_runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
@@ -295,6 +331,14 @@ class Discovery:
                     ),
                 )
                 link("finding", fid, finding["source_ids"])
+
+    def memory(self, sid):
+        with self.storage.connection() as db:
+            require(db, "sessions", sid)
+            row = db.execute(
+                "SELECT payload FROM analysis_state WHERE session_id=?", (sid,)
+            ).fetchone()
+            return json.loads(row[0]) if row else empty_memory()
 
     def reset(self, mid):
         with self.storage.connection() as db:

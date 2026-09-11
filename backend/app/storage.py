@@ -46,6 +46,16 @@ class Storage:
                 ):
                     with sqlite3.connect(backup) as destination:
                         source.backup(destination)
+                if (
+                    "schema_migrations" in tables
+                    and not source.execute(
+                        "SELECT 1 FROM schema_migrations WHERE version=2"
+                    ).fetchone()
+                ):
+                    analysis_backup = self.path.with_suffix(".before-analysis.sqlite3")
+                    if not analysis_backup.exists():
+                        with sqlite3.connect(analysis_backup) as destination:
+                            source.backup(destination)
         with self.connection() as db:
             db.execute("PRAGMA journal_mode = WAL")
             db.executescript("""

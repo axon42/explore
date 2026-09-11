@@ -45,7 +45,7 @@ test("workspace, brief, transcript, questions, evidence, notes and persistence",
     .fill("Last Friday I used a spreadsheet to check reports for two hours.");
   await page.getByRole("button", { name: "Inject", exact: true }).click();
   const question = page.getByRole("button", {
-    name: "What happened as a result, and who was affected?",
+    name: "You mentioned “Last Friday I used a spreadsheet to check reports for two hours.”. What was the impact?",
     exact: true,
   });
   await expect(question).toBeVisible();
