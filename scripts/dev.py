@@ -2,6 +2,7 @@
 
 import os
 import signal
+import shutil
 import subprocess
 import sys
 import time
@@ -48,15 +49,15 @@ try:
             ],
             cwd=ROOT / "backend",
             env=env,
-            start_new_session=True,
+            start_new_session=os.name != "nt",
         )
     )
     children.append(
         subprocess.Popen(
-            ["npm", "run", "dev"],
+            [shutil.which("npm") or "npm", "run", "dev"],
             cwd=ROOT / "frontend",
             env=env,
-            start_new_session=True,
+            start_new_session=os.name != "nt",
         )
     )
     while not stopping and all(child.poll() is None for child in children):
@@ -64,12 +65,18 @@ try:
 finally:
     for child in children:
         if child.poll() is None:
-            os.killpg(child.pid, signal.SIGTERM)
+            if os.name == "nt":
+                subprocess.run(["taskkill", "/PID", str(child.pid), "/T", "/F"], check=False)
+            else:
+                os.killpg(child.pid, signal.SIGTERM)
     for child in children:
         try:
             child.wait(timeout=10)
         except subprocess.TimeoutExpired:
-            os.killpg(child.pid, signal.SIGKILL)
+            if os.name == "nt":
+                child.kill()
+            else:
+                os.killpg(child.pid, signal.SIGKILL)
             child.wait()
 if not stopping and any(child.returncode for child in children):
     sys.exit(1)

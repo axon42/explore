@@ -12,7 +12,9 @@ from pydantic import ValidationError
 
 from .broadcast import Broadcaster
 from .config import Settings
+from .discovery_api import router
 from .models import CreateSession, DomainError, TranscriptEvent
+from .pipeline import FIXTURE, Pipeline, PlaybackCommand
 from .replay import replay
 from .service import Service
 from .storage import Storage
@@ -30,6 +32,8 @@ def create_app(settings: Settings | None = None):
     storage = Storage(settings.data_dir / "meetings.sqlite3")
     broker = Broadcaster(settings.subscriber_queue_size)
     service = Service(storage, broker)
+    pipeline = Pipeline(service, settings)
+    service.on_final = pipeline.notify
     replays: dict[str, asyncio.Task] = {}
     sockets: set[WebSocket] = set()
 
@@ -38,6 +42,7 @@ def create_app(settings: Settings | None = None):
         recovered = await asyncio.to_thread(storage.initialize)
         log("startup", interrupted_sessions=recovered)
         yield
+        await pipeline.close()
         for task in replays.values():
             task.cancel()
         await asyncio.gather(*replays.values(), return_exceptions=True)
@@ -52,7 +57,8 @@ def create_app(settings: Settings | None = None):
             if session["status"] == "live":
                 storage.stop(session["id"])
 
-    app = FastAPI(title="Local transcript", lifespan=lifespan)
+    app = FastAPI(title="Explore", lifespan=lifespan)
+    app.state.pipeline = pipeline
     app.state.service = service
     app.state.replays = replays
 
@@ -93,12 +99,31 @@ def create_app(settings: Settings | None = None):
     @app.post("/sessions/{session_id}/stop")
     async def stop(session_id: str):
         session = await service.stop(session_id)
+        await pipeline.stop(session_id)
         task = replays.get(session_id)
         if task:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
         log("session_stopped", session_id=session_id)
         return session
+
+    @app.get("/fixtures")
+    async def fixtures():
+        return [{k: FIXTURE[k] for k in ("id", "title", "objective")}]
+
+    @app.get("/sessions/{session_id}/experiment")
+    async def experiment(session_id: str):
+        return await pipeline.view(session_id)
+
+    @app.post("/sessions/{session_id}/playback")
+    async def playback(session_id: str, command: PlaybackCommand):
+        return await pipeline.command(session_id, command)
+
+    @app.post("/sessions/{session_id}/inject")
+    async def inject(session_id: str, event: TranscriptEvent):
+        return await service.ingest(session_id, event)
+
+    app.include_router(router(service, pipeline, stop))
 
     async def run_demo(session_id: str):
         try:

@@ -8,6 +8,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from .models import DomainError, TranscriptEvent
+from .schema import migrate
 
 
 def now() -> str:
@@ -31,9 +32,26 @@ class Storage:
 
     def initialize(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        if self.path.exists():
+            with sqlite3.connect(self.path) as source:
+                tables = {
+                    r[0]
+                    for r in source.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                }
+                backup = self.path.with_suffix(".before-discovery.sqlite3")
+                if (
+                    "sessions" in tables
+                    and "schema_migrations" not in tables
+                    and not backup.exists()
+                ):
+                    with sqlite3.connect(backup) as destination:
+                        source.backup(destination)
         with self.connection() as db:
             db.execute("PRAGMA journal_mode = WAL")
             db.executescript("""
+                CREATE TABLE IF NOT EXISTS experiments (
+                    session_id TEXT PRIMARY KEY REFERENCES sessions(id), payload TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS sessions (
                     id TEXT PRIMARY KEY, title TEXT NOT NULL,
                     status TEXT NOT NULL CHECK(status IN ('live', 'stopped')),
@@ -51,6 +69,7 @@ class Storage:
                     event_id TEXT NOT NULL, PRIMARY KEY(session_id, event_id)
                 );
             """)
+            migrate(db, now())
             interrupted = db.execute(
                 "UPDATE sessions SET status='stopped', stopped_at=?, version=version+1 "
                 "WHERE status='live'",
@@ -58,12 +77,27 @@ class Storage:
             ).rowcount
         return interrupted
 
-    def create(self, title: str | None):
+    def create(self, title: str | None, workspace_id: str = "default"):
         with self.connection() as db:
-            session_id = str(uuid4())
+            db.execute("BEGIN IMMEDIATE")
+            if not db.execute("SELECT 1 FROM workspaces WHERE id=?", (workspace_id,)).fetchone():
+                raise DomainError("not_found", "Workspace not found", 404)
+            session_id, meeting_id = str(uuid4()), str(uuid4())
+            title = (title or "").strip() or "Untitled session"
             db.execute(
-                "INSERT INTO sessions(id, title, status, created_at) VALUES (?, ?, 'live', ?)",
-                (session_id, (title or "").strip() or "Untitled session", now()),
+                "INSERT INTO meetings VALUES (?, ?, ?, 0, ?, ?)",
+                (meeting_id, workspace_id, title, now(), now()),
+            )
+            db.execute(
+                "INSERT INTO meeting_briefs VALUES (?, 0, ?, ?)",
+                (meeting_id, json.dumps({"title": title, "objective": ""}), now()),
+            )
+            db.execute(
+                (
+                    "INSERT INTO sessions(id,title,status,created_at,meeting_id) VALUES "
+                    "(?,?,'live',?,?)"
+                ),
+                (session_id, title, now(), meeting_id),
             )
             return self._session(db, session_id)
 
@@ -136,6 +170,10 @@ class Storage:
             if reason is None:
                 payload = event.model_dump()
                 db.execute(
+                    "INSERT INTO segment_revisions VALUES (?, ?, ?, ?)",
+                    (session_id, event.segment_id, event.revision, json.dumps(payload)),
+                )
+                db.execute(
                     "INSERT INTO segments VALUES (?, ?, ?, ?, ?) "
                     "ON CONFLICT(session_id, segment_id) DO UPDATE SET "
                     "revision=excluded.revision, is_final=excluded.is_final, "
@@ -161,3 +199,19 @@ class Storage:
                 ack["reason"] = reason
         # The transaction has committed before the acknowledgement leaves storage.
         return ack, change
+
+    def experiment(self, session_id):
+        with self.connection() as db:
+            self._session(db, session_id)
+            row = db.execute(
+                "SELECT payload FROM experiments WHERE session_id=?", (session_id,)
+            ).fetchone()
+            return json.loads(row[0]) if row else None
+
+    def save_experiment(self, session_id, payload):
+        with self.connection() as db:
+            db.execute(
+                "INSERT INTO experiments VALUES (?, ?) ON CONFLICT(session_id) "
+                "DO UPDATE SET payload=excluded.payload",
+                (session_id, json.dumps(payload)),
+            )

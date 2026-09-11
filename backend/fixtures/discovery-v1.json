@@ -1,0 +1,19 @@
+{
+  "id": "discovery-v1",
+  "title": "The Friday reporting scramble",
+  "objective": "Understand how small agency teams prepare client reports, existing workarounds and their impact.",
+  "turns": [
+    {"speaker": "cofounder", "text": "Tell me about your role and how you prepare client reports.", "duration_ms": 6000},
+    {"speaker": "customer", "text": "I run operations at a small marketing agency. Reporting is a headache every week.", "duration_ms": 8000},
+    {"speaker": "cofounder", "text": "Can you walk me through the last time you prepared one?", "duration_ms": 5000},
+    {"speaker": "customer", "text": "Last Friday I exported numbers from three ad platforms, pasted them into a spreadsheet and checked each total. It took two hours.", "duration_ms": 11000},
+    {"speaker": "cofounder", "text": "What happened after you checked the totals?", "duration_ms": 4000},
+    {"speaker": "customer", "text": "One total was wrong. Our account manager caught it before sending the report, but we delayed the client meeting by half an hour.", "duration_ms": 10000},
+    {"speaker": "cofounder", "text": "What have you tried to make this easier?", "duration_ms": 4000},
+    {"speaker": "customer", "text": "We bought a dashboard tool for 80 dollars a month. We still use the spreadsheet because two clients want their own format.", "duration_ms": 10000},
+    {"speaker": "cofounder", "text": "How often does a report actually delay a meeting?", "duration_ms": 5000},
+    {"speaker": "customer", "text": "Only twice this quarter. Most reports are fine. Client onboarding takes more of my time than reporting.", "duration_ms": 9000},
+    {"speaker": "cofounder", "text": "Tell me about the most recent client onboarding.", "duration_ms": 4000},
+    {"speaker": "customer", "text": "Yesterday I chased four people for account access. We could not start work until the client owner approved it this morning.", "duration_ms": 9000}
+  ]
+}

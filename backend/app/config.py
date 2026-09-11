@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -11,6 +12,10 @@ class Settings(BaseSettings):
     data_dir: Path = ROOT / "data"
     ingestion_token: SecretStr = SecretStr("")
     demo_enabled: bool = True
+    analysis_provider: Literal["mock", "gemini"] = "mock"
+    gemini_api_key: SecretStr = SecretStr("")
+    gemini_model: str = Field(default="gemini-3.1-flash-lite", pattern=r"^[a-zA-Z0-9.-]+$")
+    analysis_max_calls: int = Field(default=100, ge=1, le=1000)
     backend_port: int = Field(default=8000, ge=1024, le=65535)
     frontend_port: int = Field(default=5173, ge=1024, le=65535)
     subscriber_queue_size: int = Field(default=128, ge=1)

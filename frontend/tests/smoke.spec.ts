@@ -1,187 +1,145 @@
-import { expect, test } from "@playwright/test";
-
-test("create, replay evolving transcript, stop, and reload persisted history", async ({
+import { test, expect } from "@playwright/test";
+import type { Page } from "@playwright/test";
+async function create(page: Page) {
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "New workspace", exact: true })
+    .click();
+  await page
+    .getByRole("dialog")
+    .getByLabel("Name")
+    .fill("Agencies " + Date.now());
+  await page.getByRole("button", { name: "Create", exact: true }).click();
+  await page
+    .getByRole("button", { name: "New meeting", exact: true })
+    .first()
+    .click();
+  await page.getByRole("dialog").getByLabel("Name").fill("Agency discovery");
+  await page.getByRole("button", { name: "Create", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Agency discovery" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Next turn", exact: true }),
+  ).toBeEnabled();
+}
+test("workspace, brief, transcript, questions, evidence, notes and persistence", async ({
   page,
 }) => {
   const errors: string[] = [];
-  page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto("/");
+  page.on("pageerror", (e) => errors.push(e.message));
+  await create(page);
+  await page.getByRole("button", { name: "Brief", exact: true }).click();
   await page
-    .getByRole("button", { name: "New session", exact: false })
-    .first()
+    .getByLabel("Objective", { exact: true })
+    .fill("Understand reporting workflow and existing spend.");
+  await page
+    .getByLabel("Customer", { exact: true })
+    .fill("Sam, agency operations");
+  await page.getByRole("button", { name: "Save brief", exact: true }).click();
+  await expect(page.getByRole("status")).toHaveText("Saved");
+  await page.getByRole("button", { name: "Interview", exact: true }).click();
+  await page.getByText("Inject dialogue", { exact: true }).click();
+  await page
+    .getByLabel("Transcript text", { exact: true })
+    .fill("Last Friday I used a spreadsheet to check reports for two hours.");
+  await page.getByRole("button", { name: "Inject", exact: true }).click();
+  const question = page.getByRole("button", {
+    name: "What happened as a result, and who was affected?",
+    exact: true,
+  });
+  await expect(question).toBeVisible();
+  await question.click();
+  await expect(page.locator(".ex-evidence")).toContainText("Last Friday");
+  await page.getByRole("button", { name: "Mark asked", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Mark answered", exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Mark answered", exact: true })
     .click();
-  const title = `Product conversation ${Date.now()}`;
-  await page.getByLabel("Session title").fill(title);
-  await page.getByRole("button", { name: "Create session" }).click();
-  await expect(page.getByRole("heading", { name: title })).toBeVisible();
-  await expect(page.getByText("Connected", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Start demo" }).click();
-  await expect(page.locator('[data-final="false"]')).toBeVisible();
-  await expect(page.getByText("Live draft", { exact: true })).toBeVisible();
-  await expect(
-    page.getByText(
-      "I grouped them by priority. There are four we should look at today.",
-    ),
-  ).toBeVisible({ timeout: 20000 });
-  await expect(
-    page.getByText(
-      "That sounds good. Let's start with the onboarding request and go from there.",
-    ),
-  ).toBeVisible({ timeout: 10000 });
-  await expect(page.getByTestId("segment")).toHaveCount(3);
-  await expect(page.locator('[data-final="false"]')).toHaveCount(0);
+  await expect(page.locator(".ex-progress")).toContainText("1 / 1");
   await page.screenshot({
-    path: "test-results/live-desktop.png",
+    path: "test-results/explore-interview.png",
     fullPage: true,
   });
-  await page.getByRole("button", { name: "Stop session" }).click();
+  await page.getByRole("button", { name: "Overview", exact: true }).click();
   await expect(
-    page.getByText("Session complete", { exact: true }),
+    page.getByRole("heading", { name: "Spreadsheet reporting" }),
   ).toBeVisible();
+  await page.screenshot({
+    path: "test-results/explore-overview.png",
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "Notes", exact: true }).click();
+  await page
+    .getByLabel("Meeting note", { exact: true })
+    .fill("Ask who approves the final report.");
+  await page.getByRole("button", { name: "Add note", exact: true }).click();
+  await expect(page.locator(".ex-notes article")).toContainText(
+    "Ask who approves",
+  );
   await page.reload();
-  await expect(page.getByRole("heading", { name: title })).toBeVisible();
-  await expect(page.getByTestId("segment")).toHaveCount(3);
   await expect(
-    page.getByText("Session complete", { exact: true }),
+    page.getByRole("heading", { name: "Agency discovery" }),
   ).toBeVisible();
-  await expect(page.getByRole("button", { name: "Start demo" })).toHaveCount(0);
-  await page.screenshot({
-    path: "test-results/stopped-desktop.png",
-    fullPage: true,
-  });
+  await expect(page.locator(".ex-progress")).toContainText("1 / 1");
+  await page.getByRole("button", { name: "Notes", exact: false }).click();
+  await expect(page.locator(".ex-notes article")).toContainText(
+    "Ask who approves",
+  );
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.getByRole("heading", { name: title })).toBeVisible();
+  await page.getByRole("button", { name: "Interview", exact: true }).click();
   expect(
     await page.evaluate(
-      () => document.documentElement.scrollWidth <= window.innerWidth,
+      () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
   await page.screenshot({
-    path: "test-results/stopped-mobile.png",
+    path: "test-results/explore-mobile.png",
     fullPage: true,
   });
   expect(errors).toEqual([]);
 });
-
-test("disconnects and reconnects to a consistent saved snapshot", async ({
+test("reset during replay starts clean and preserves brief and notes", async ({
   page,
-  request,
 }) => {
-  await page.addInitScript(() => {
-    const Original = window.WebSocket;
-    window.WebSocket = class extends Original {
-      constructor(url: string | URL, protocols?: string | string[]) {
-        super(url, protocols);
-        (window as unknown as { testSocket: WebSocket }).testSocket = this;
-      }
-    };
-  });
-  await page.goto("/");
-  await page.getByRole("button", { name: "New session" }).first().click();
-  await page.getByLabel("Session title").fill("Reconnect check");
-  await page.getByRole("button", { name: "Create session" }).click();
+  await create(page);
+  await page.getByRole("button", { name: "Play", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Reconnect check" }),
+    page.locator(".ex-transcript-list article").first(),
   ).toBeVisible();
-  await expect(page.getByText("Connected", { exact: true })).toBeVisible();
-  const id = new URL(page.url()).hash.slice(1);
-  await page.evaluate(() =>
-    (window as unknown as { testSocket: WebSocket }).testSocket.close(),
-  );
-  await expect(page.getByText("Disconnected", { exact: true })).toBeVisible();
-  // A change committed while disconnected must arrive in the next snapshot.
-  await request.post(`/api/sessions/${id}/stop`);
-  await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Reset test", exact: true }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Reset test", exact: true })
+    .click();
+  await expect(page.locator(".ex-transcript-list article")).toHaveCount(0);
   await expect(
-    page.getByText("Session complete", { exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: "Reconnect check" }),
-  ).toBeVisible();
+    page.getByRole("button", { name: "Play", exact: true }),
+  ).toBeEnabled();
+  await page.reload();
+  await expect(page.locator(".ex-transcript-list article")).toHaveCount(0);
+  await page.getByRole("button", { name: "Next turn", exact: true }).click();
+  await expect(page.locator(".ex-transcript-list article")).toHaveCount(1);
 });
-
-test("keeps the reading position and offers jump to latest", async ({
+test("two viewers see the same questions and updated status", async ({
   page,
+  context,
 }) => {
-  await page.goto("/");
-  await page.getByRole("button", { name: "New session" }).first().click();
-  await page.getByLabel("Session title").fill("Scroll check");
-  await page.getByRole("button", { name: "Create session" }).click();
+  await create(page);
+  const other = await context.newPage();
+  await other.goto("/");
   await expect(
-    page.getByRole("heading", { name: "Scroll check" }),
+    other.getByRole("heading", { name: "Agency discovery" }),
   ).toBeVisible();
-  await expect(page.getByText("Connected", { exact: true })).toBeVisible();
-  async function produce(start: number, count: number) {
-    await page.evaluate(
-      async ({ start, count }) => {
-        const socket = new WebSocket(
-          `ws://${location.host}/api/sessions/${location.hash.slice(1)}/ingest`,
-        );
-        await new Promise<void>((resolve, reject) => {
-          socket.onopen = () => resolve();
-          socket.onerror = reject;
-        });
-        try {
-          for (let index = start; index < start + count; index++) {
-            const ack = new Promise<void>((resolve, reject) => {
-              socket.onmessage = (event) =>
-                JSON.parse(event.data).outcome === "accepted"
-                  ? resolve()
-                  : reject(new Error(event.data));
-            });
-            socket.send(
-              JSON.stringify({
-                event_id: `scroll-${index}`,
-                segment_id: `scroll-${index}`,
-                revision: 1,
-                speaker_id: "Alex",
-                speaker_name: "Alex",
-                start_ms: index * 1000,
-                end_ms: (index + 1) * 1000,
-                text: `Discussion point ${index}. We will review this request in the next team meeting.`,
-                is_final: true,
-              }),
-            );
-            await ack;
-          }
-        } finally {
-          socket.close();
-        }
-      },
-      { start, count },
-    );
-  }
-  await produce(0, 25);
-  await expect(page.getByTestId("segment")).toHaveCount(25);
-  const transcript = page.locator(".transcript-scroll");
-  await expect
-    .poll(() =>
-      transcript.evaluate(
-        (element) =>
-          element.scrollHeight - element.scrollTop - element.clientHeight,
-      ),
-    )
-    .toBeLessThan(100);
-  await transcript.evaluate((element) => {
-    element.scrollTop = 0;
-  });
+  await page.getByRole("button", { name: "Next turn", exact: true }).click();
+  await expect(page.locator(".ex-transcript-list article")).toHaveCount(1);
+  await page.getByRole("button", { name: "Next turn", exact: true }).click();
+  await expect(other.locator(".ex-question")).toHaveCount(1);
+  await page.getByRole("button", { name: "Mark asked", exact: true }).click();
   await expect(
-    page.getByRole("button", { name: "Jump to latest" }),
+    other.getByRole("button", { name: "Mark answered", exact: true }),
   ).toBeVisible();
-  await produce(25, 1);
-  await expect(page.getByTestId("segment")).toHaveCount(26);
-  expect(await transcript.evaluate((element) => element.scrollTop)).toBe(0);
-  await page.getByRole("button", { name: "Jump to latest" }).click();
-  await expect
-    .poll(() =>
-      transcript.evaluate(
-        (element) =>
-          element.scrollHeight - element.scrollTop - element.clientHeight,
-      ),
-    )
-    .toBeLessThan(100);
-  await page.getByRole("button", { name: "Stop session" }).click();
-  await expect(
-    page.getByText("Session complete", { exact: true }),
-  ).toBeVisible();
+  await other.close();
 });

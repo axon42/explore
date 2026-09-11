@@ -20,6 +20,8 @@ export default defineConfig({
       DATA_DIR: "./data/browser-tests",
       DEMO_ENABLED: "true",
       INGESTION_TOKEN: "",
+      ANALYSIS_PROVIDER: "mock",
+      GEMINI_API_KEY: "",
     },
     timeout: 60000,
   },
