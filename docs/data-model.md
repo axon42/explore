@@ -32,7 +32,7 @@ erDiagram
 
 ## Consistency and reset
 
-No provider call holds the database lock. A completed call is discarded as stale if finalized context or the meeting context version changed. Invalid evidence IDs are rejected. The analysis result and its question/finding/evidence records commit together.
+No provider call holds the database lock. A completed call is discarded if one of its supplied source revisions or the human meeting context changed. Compatible newly appended dialogue remains pending while accepted state commits. Invalid evidence IDs are rejected. The analysis result and its question/finding/evidence records commit together.
 
 Meeting reset requires the expected session ID. It stops ingestion on that run, cancels and awaits replay/analysis work, then transactionally deletes run data and creates a fresh session. A repeated reset using the old ID returns 409. Workspace clearing coordinates the same shutdown and removes only that workspace's meetings, briefs, notes and run data. The workspace remains. Database work is awaited even when its calling coroutine is cancelled, so locks cannot release before a worker thread finishes writing.
 
@@ -54,6 +54,19 @@ Before migrating a legacy database, `Storage.initialize` makes a consistent SQLi
 - Existing `/sessions/{id}` replay, injection and WebSocket endpoints remain available.
 
 The browser polls meeting state every 800 ms, cancelling obsolete loads. Selection IDs alone are remembered in localStorage; content lives in SQLite. This adds up to one polling interval plus request time to display latency. The WebSocket contract remains available for faster future UI transport.
+
+## Analysis/report migration 2
+
+- `analysis_state`: current structured claims, question-match proposals, workflows, processed revision coverage and overview, keyed by session. Updated atomically with accepted analysis runs; immutable run input/output retains prior state/proposal provenance.
+- `meeting_participants`: human participant/speaker mappings with optimistic revision checks. Roles remain unknown unless supplied. Context version advances when edited; existing reports preserve their earlier participant snapshot.
+- `report_jobs`: durable finalization status/error, keyed by session. Interrupted jobs become failed on startup.
+- `reports`: immutable structured reports, unique by session/source/context version and numbered within the session. Includes exact evidence, note snapshots and generation provenance.
+
+Session-owned additions cascade on run deletion; participant mappings survive reset and cascade only
+with meeting deletion. Migration is transactional and idempotent; upgrading a version-1 database first saves a consistent
+`meetings.before-analysis.sqlite3` backup. Existing historical runs are not
+silently converted to new structured memory: finalization processes retained current finals as needed.
+See [analysis and report APIs](analysis.md) for coverage, exports and finalization semantics.
 
 ## Future context brain
 

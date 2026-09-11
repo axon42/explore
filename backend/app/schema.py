@@ -65,7 +65,7 @@ DDL = [
 ]
 
 
-def migrate(db, timestamp):
+def migrate_v1(db, timestamp):
     db.execute(
         "CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY "
         "KEY, applied_at TEXT NOT NULL)"
@@ -102,3 +102,32 @@ def migrate(db, timestamp):
 def legacy_objective(db, sid):
     row = db.execute("SELECT payload FROM experiments WHERE session_id=?", (sid,)).fetchone()
     return json.loads(row[0]).get("objective", "") if row else ""
+
+
+DDL_V2 = [
+    """CREATE TABLE analysis_state(session_id TEXT PRIMARY KEY REFERENCES sessions(id)
+        ON DELETE CASCADE, payload TEXT NOT NULL)""",
+    """CREATE TABLE meeting_participants(meeting_id TEXT PRIMARY KEY REFERENCES meetings(id)
+        ON DELETE CASCADE, revision INTEGER NOT NULL, payload TEXT NOT NULL)""",
+    """CREATE TABLE reports(id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id)
+        ON DELETE CASCADE, revision INTEGER NOT NULL, input_version INTEGER NOT NULL,
+        context_version INTEGER NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL,
+        UNIQUE(session_id, revision), UNIQUE(session_id, input_version, context_version))""",
+    """CREATE TABLE report_jobs(session_id TEXT PRIMARY KEY REFERENCES sessions(id)
+        ON DELETE CASCADE, status TEXT NOT NULL CHECK(status IN ('pending','generating',
+        'complete','failed')), error TEXT NOT NULL DEFAULT '')""",
+]
+
+
+def migrate(db, timestamp):
+    migrate_v1(db, timestamp)
+    if not db.execute("SELECT 1 FROM schema_migrations WHERE version=2").fetchone():
+        if not db.in_transaction:
+            db.execute("BEGIN IMMEDIATE")
+        for statement in DDL_V2:
+            db.execute(statement)
+        db.execute("INSERT INTO schema_migrations VALUES (2, ?)", (timestamp,))
+    db.execute(
+        "UPDATE report_jobs SET status='failed', error='Interrupted; retry finalization.' "
+        "WHERE status IN ('pending','generating')"
+    )
