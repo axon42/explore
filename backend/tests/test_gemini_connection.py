@@ -111,3 +111,53 @@ def test_workflow_transition_schema_requires_evidence_ids_not_step_labels():
         validate_proposal(proposal, context)
     proposal.workflows[0].transitions = [["turn-4"]]
     validate_proposal(proposal, context)
+
+
+@pytest.mark.parametrize(
+    "body,expected",
+    [
+        ({"candidates": [{"finishReason": "MAX_TOKENS"}]}, "output token limit"),
+        ({"promptFeedback": {"blockReason": "private"}}, "blocked"),
+        ({"candidates": []}, "no analysis candidate"),
+        ({"candidates": [{"finishReason": "SAFETY"}]}, "stopped without"),
+        (
+            {"candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": "private"}]}}]},
+            "malformed JSON",
+        ),
+        (
+            {
+                "candidates": [
+                    {
+                        "finishReason": "STOP",
+                        "content": {"parts": [{"text": '{"question":"private"}'}]},
+                    }
+                ]
+            },
+            "analysis contract",
+        ),
+    ],
+)
+async def test_structured_failures_are_distinct_safe_and_single_call(monkeypatch, body, expected):
+    client = httpx.AsyncClient
+    calls = []
+
+    def respond(request):
+        calls.append(request)
+        return httpx.Response(200, json=body)
+
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda **kw: client(transport=httpx.MockTransport(respond), **kw)
+    )
+    with pytest.raises(ProviderError) as exc:
+        await GeminiAnalyzer("private", "test-model").analyze({})
+    assert expected in str(exc.value)
+    assert "private" not in str(exc.value)
+    assert len(calls) == 1
+
+
+def test_wire_describes_local_bounds_without_complicating_grammar():
+    from app.analysis import gemini_output_schema
+
+    schema = gemini_output_schema()
+    assert "Maximum characters: 500" in schema["properties"]["question"]["description"]
+    assert "Maximum items: 12" in schema["properties"]["claims"]["description"]

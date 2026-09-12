@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     backend_port: int = Field(default=8000, ge=1024, le=65535)
     frontend_port: int = Field(default=5173, ge=1024, le=65535)
     subscriber_queue_size: int = Field(default=128, ge=1)
+    zoom_video_sdk_key: SecretStr = SecretStr("")
+    zoom_video_sdk_secret: SecretStr = SecretStr("")
+    zoom_proof_enabled: bool = False
+    zoom_webhook_secret_token: SecretStr = SecretStr("")
 
     @field_validator("data_dir")
     @classmethod

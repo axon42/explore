@@ -1,7 +1,7 @@
 # Stage 1 — Explore
 
 Connected browser UI with workspaces, meetings, replay/injection, persistent question history,
-source-linked findings, versioned briefs and notes, and scoped test reset. Dark theme.
+source-linked findings, versioned briefs and notes, and scoped test reset. Light theme.
 
 Synthetic two-person interview tests the same ingestion boundary as external transcript producers.
 Default analysis is simulated; Gemini can be enabled through backend configuration.
@@ -20,5 +20,5 @@ revisions; generated notes and reports share a structure beginning with particip
 workflows export editable Mermaid diagrams. Repository default remains mock; the real Gemini synthetic integration check passed and local configuration can enable Gemini.
 
 See [analysis APIs](../docs/analysis.md), [analysis design](../design/live-analysis.md) and
-[report design](../design/meeting-reports.md). Dedicated report/participant/export UI controls,
-structured human-note editing and real-model evaluation remain separate work.
+[report design](../design/meeting-reports.md). Report/participant/export controls and generated-note viewing are connected in the browser.
+Structured human-note editing and further real-model evaluation remain separate work.

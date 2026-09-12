@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  AudioLines,
   Plus,
   Folder,
   MessageSquare,
@@ -10,6 +9,7 @@ import {
 import { api } from "../types";
 import type { Detail, Meeting, Workspace } from "./data";
 import { MeetingView } from "./MeetingView";
+import { Logo } from "./Logo";
 import "./explore.css";
 export default function Explore() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -127,7 +127,7 @@ export default function Explore() {
     <div className="explore">
       <aside className="ex-sidebar">
         <a className="ex-brand" href="/">
-          <AudioLines size={23} />
+          <Logo />
           Explore
         </a>
         <label className="ex-label" htmlFor="workspace">
