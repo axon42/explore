@@ -3,8 +3,8 @@
 The backend implements the [analysis design](../design/live-analysis.md) and
 [report design](../design/meeting-reports.md) using the mock provider by default. Existing
 Interview/Overview screens consume the resulting questions and accumulated overview. Participant
-editing, structured AI notes, exports and final reports are available through the API; dedicated
-UI controls are not added in this change. Local interactive API documentation is at `/docs` on
+editing is available in Brief; Notes exposes structured AI notes; Report provides finalization,
+job status, immutable revision downloads and full transcript exports. Local interactive API documentation is at `/docs` on
 the backend (normally `http://127.0.0.1:8000/docs`).
 
 ## Processing
@@ -96,3 +96,11 @@ See [pipeline configuration](pipeline.md#gemini) for connecting Gemini later.
 Regression coverage includes untruncated batching, source correction, compatible in-flight updates,
 manual status precedence, invalid references, transaction rollback, job idempotence, participant
 revisions, full exports, report retries, reset races, restart persistence and workspace ownership.
+
+Gemini response failures distinguish token-limit truncation, blocked/empty responses, malformed
+JSON and local contract violations. Safe messages exclude response text and arbitrary field names.
+Wire-schema descriptions carry local size limits; the compact-output prompt requests only changed
+memory entries. Strict local validation and the 4,096-token output ceiling remain unchanged, with
+no automatic retries. After deploying an adapter change, restart the backend. A live session retries
+unprocessed evidence when another turn arrives; a stopped session retries via Generate report.
+Refreshing the UI only reloads state and does not retry analysis.

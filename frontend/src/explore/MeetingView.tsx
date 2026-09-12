@@ -18,6 +18,7 @@ import { api, timestamp } from "../types";
 import type { Evidence, Question } from "./data";
 import { useMeeting } from "./useMeeting";
 import { BriefEditor, Notes } from "./Editors";
+import { GeneratedNotes, Participants, Reports } from "./Records";
 export function MeetingView({
   id,
   workspace,
@@ -161,7 +162,7 @@ export function MeetingView({
         </div>
       </header>
       <nav className="ex-tabs" aria-label="Meeting views">
-        {["Interview", "Overview", "Brief", "Notes"].map((name) => (
+        {["Interview", "Overview", "Brief", "Notes", "Report"].map((name) => (
           <button
             key={name}
             aria-current={name === tab ? "page" : undefined}
@@ -188,13 +189,10 @@ export function MeetingView({
                 <strong>
                   {answered} / {detail.questions.length}
                 </strong>{" "}
-                answered<span>{asked} awaiting an answer</span>
+                answered<span>{asked} asked</span>
+                <span>{detail.questions.length - answered - asked} queued</span>
               </div>
-              <progress
-                aria-label="Answered questions"
-                value={answered}
-                max={detail.questions.length || 1}
-              />
+              <span>Question progress</span>
             </div>
             <div className="ex-interview-grid">
               <section className="ex-transcript">
@@ -404,7 +402,7 @@ export function MeetingView({
                   <span>
                     {experiment.analysis_status === "analyzing"
                       ? "Analyzing…"
-                      : `${experiment.calls} ${experiment.calls === 1 ? "call" : "calls"}`}
+                      : `${detail.questions.length} collected`}
                   </span>
                 </div>
                 <div className="ex-filters">
@@ -522,10 +520,11 @@ export function MeetingView({
             </div>
           </section>
         )}
-        {tab === "Brief" && <BriefEditor detail={detail} onSaved={reload} />}
+        {tab === "Brief" && <><BriefEditor detail={detail} onSaved={reload} /><Participants key={id} mid={id} /></>}
         {tab === "Notes" && (
-          <Notes mid={id} notes={detail.notes} onSaved={reload} />
+          <><Notes mid={id} notes={detail.notes} onSaved={reload} /><GeneratedNotes key={sid} mid={id} /></>
         )}
+        {tab === "Report" && <Reports key={sid} mid={id} sid={sid} stopped={stopped} onChanged={reload} />}
       </div>
       <dialog
         ref={resetDialog}
@@ -545,7 +544,7 @@ export function MeetingView({
           </button>
         </header>
         <p>
-          Delete this meeting’s transcript, questions and analysis. Keep its
+          Delete this meeting’s transcript, questions, analysis and reports. Keep its
           brief and notes. The new test gets a fresh session; old transcript
           streams cannot write to it.
         </p>

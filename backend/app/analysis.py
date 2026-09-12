@@ -6,11 +6,11 @@ import json
 from typing import Literal, Protocol
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from .analysis_state import Claim, QuestionMatch, Workflow, WorkflowStep
 
-PROMPT_VERSION = "discovery-v3"
+PROMPT_VERSION = "discovery-v4"
 SYSTEM = """Assist a customer discovery interviewer using Mom Test principles.
 Ask at most one concise question about past behavior, concrete examples, workflow,
 frequency, impact or existing workarounds. Never pitch solutions or invent pain.
@@ -29,7 +29,8 @@ is a valid result. Propose asked/answered matches only for supplied question IDs
 these are suggestions for human review, never status changes. Workflow steps and transitions
 need evidence. Workflow transitions are arrays of supporting segment IDs, NOT step labels.
 Use exactly one transition entry per adjacent step pair; [] means unknown order.
-No executable diagram code.
+No executable diagram code. Keep output compact. Return only new or changed claims/workflows,
+not a copy of all supplied memory. Empty arrays are valid when no updates are supported.
 Do not claim an unanswered question is answered. Output structured JSON."""
 
 
@@ -175,6 +176,18 @@ def gemini_output_schema(context=None):
         if "$ref" in node:
             return simplify(definitions[node["$ref"].split("/")[-1]])
         result = {k: v for k, v in node.items() if k in ("type", "enum", "required", "description")}
+        # Describe local bounds without expanding the constrained-generation grammar.
+        limits = []
+        for keyword, label in (
+            ("minLength", "Minimum characters"),
+            ("maxLength", "Maximum characters"),
+            ("minItems", "Minimum items"),
+            ("maxItems", "Maximum items"),
+        ):
+            if keyword in node:
+                limits.append(f"{label}: {node[keyword]}.")
+        if limits:
+            result["description"] = " ".join([result.get("description", ""), *limits]).strip()
         if "properties" in node:
             result["properties"] = {k: simplify(v) for k, v in node["properties"].items()}
             if source_ids and "source_ids" in result["properties"]:
@@ -239,10 +252,38 @@ class GeminiAnalyzer:
             )
             response.raise_for_status()
             body = response.json()
-            candidate = body["candidates"][0]
-            if candidate.get("finishReason") != "STOP":
-                raise ValueError("Incomplete model output")
+            if body.get("promptFeedback", {}).get("blockReason"):
+                raise ProviderError(
+                    "Gemini blocked this analysis request. Transcript remains saved."
+                )
+            candidates = body.get("candidates")
+            if not candidates:
+                raise ProviderError(
+                    "Gemini returned no analysis candidate. Transcript remains saved."
+                )
+            candidate = candidates[0]
+            reason = candidate.get("finishReason")
+            if reason == "MAX_TOKENS":
+                raise ProviderError(
+                    "Gemini reached the output token limit before completing analysis. "
+                    "Transcript remains saved; retry analysis."
+                )
+            if reason != "STOP":
+                raise ProviderError(
+                    "Gemini stopped without a complete analysis response. Transcript remains saved."
+                )
             text = "".join(
                 p.get("text", "") for p in candidate["content"]["parts"] if not p.get("thought")
             )
-            return Suggestion.model_validate_json(text), body.get("usageMetadata", {})
+            try:
+                suggestion = Suggestion.model_validate_json(text)
+            except ValidationError as exc:
+                # Never expose provider text, field values, or arbitrary field names.
+                invalid_json = any(e["type"] == "json_invalid" for e in exc.errors())
+                message = (
+                    "Gemini returned malformed JSON. Retry analysis."
+                    if invalid_json
+                    else "Gemini returned fields outside the analysis contract. Retry analysis."
+                )
+                raise ProviderError(message) from None
+            return suggestion, body.get("usageMetadata", {})

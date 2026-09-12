@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="960" viewBox="0 0 1440 960">
+<title>Explore live interview — proposed light interface</title>
+<desc>Static synthetic design showing workspace navigation, four camera placeholders, evidence-highlighted transcript, retained questions and meeting controls.</desc>
+<style>text{font-family:Arial,sans-serif;fill:#17191c;font-size:15px}.muted{fill:#626872}.small{font-size:13px}.heading{font-size:23px;font-weight:600}.bold{font-weight:600}.line{stroke:#e1e4e8}.white{fill:white}</style>
+<rect width="1440" height="960" fill="#f6f7f9"/>
+<rect x="216" width="1224" height="960" fill="white"/>
+<path d="M216 0V960" class="line"/>
+<circle cx="34" cy="38" r="12" fill="none" stroke="#17191c" stroke-width="2.5"/><circle cx="34" cy="38" r="4"/>
+<text x="56" y="45" class="heading">Explore</text>
+<text x="24" y="110" class="small muted">WORKSPACE</text><text x="24" y="140" class="bold">Operations research</text>
+<rect x="16" y="169" width="184" height="39" rx="8" fill="#e9ecf0"/><text x="30" y="194" class="bold">Meetings</text>
+<text x="24" y="247" class="small muted">TODAY</text><text x="24" y="277" class="bold">Transaction handoffs</text><text x="24" y="302" class="small muted">Morgan · Operations lead</text>
+<text x="24" y="350" class="muted">Intake and triage</text><text x="24" y="375" class="small muted">Report ready</text>
+<circle cx="34" cy="915" r="16" fill="#e1e5eb"/><text x="29" y="920" class="small">U</text><text x="60" y="921">Ujjwal</text>
+<text x="248" y="35" class="small muted">Operations research / Meetings</text>
+<text x="248" y="75" class="heading">Transaction handoffs</text>
+<rect x="1120" y="43" width="122" height="30" rx="15" fill="#e9f5ee"/><circle cx="1136" cy="58" r="4" fill="#257646"/><text x="1148" y="63" class="small">Transcribing</text><text x="1274" y="64" class="muted">24:18</text>
+<path d="M216 97H1440" class="line"/>
+<text x="248" y="131" class="bold">Interview</text><text x="356" y="131" class="muted">Overview</text><text x="469" y="131" class="muted">Notes</text><text x="551" y="131" class="muted">Brief</text>
+<path d="M248 145H311" stroke="#17191c" stroke-width="3"/>
+<text x="1140" y="131" class="small muted">Assistance · Team only</text>
+<g fill="#f0f1f4" stroke="#e1e4e8"><rect x="248" y="170" width="274" height="150" rx="10"/><rect x="538" y="170" width="274" height="150" rx="10"/><rect x="828" y="170" width="274" height="150" rx="10"/><rect x="1118" y="170" width="290" height="150" rx="10"/></g>
+<rect x="248" y="170" width="274" height="150" rx="10" fill="none" stroke="#5b8c72" stroke-width="2"/>
+<g fill="#dee5e2"><circle cx="385" cy="231" r="26"/><circle cx="675" cy="231" r="26"/><circle cx="965" cy="231" r="26"/><circle cx="1263" cy="231" r="26"/></g>
+<text x="372" y="237" class="bold">MO</text><text x="669" y="237" class="bold">U</text><text x="953" y="237" class="bold">AL</text><text x="1250" y="237" class="bold">SK</text>
+<text x="264" y="299" class="small">Morgan · Customer</text><text x="554" y="299" class="small">Ujjwal · You</text><text x="844" y="299" class="small">Alex · Cofounder</text><text x="1134" y="299" class="small">Sam · Cofounder</text>
+<text x="248" y="366" class="bold">Transcript</text><text x="633" y="366" class="small muted">Jump to live ↓</text>
+<path d="M773 347V860" class="line"/>
+<text x="248" y="410" class="small bold">Ujjwal</text><text x="319" y="410" class="small muted">22:41</text>
+<text x="248" y="440">What happened with the most recent request?</text>
+<rect x="236" y="463" width="518" height="139" rx="9" fill="#edf3ff"/>
+<rect x="236" y="471" width="3" height="123" rx="1" fill="#356ac3"/>
+<text x="252" y="494" class="small bold">Morgan</text><text x="325" y="494" class="small muted">22:53 · Linked evidence</text>
+<text x="252" y="526">The request arrived at nine, but we couldn't start</text><text x="252" y="550">the transaction workflow until three. We were</text><text x="252" y="574">waiting for someone in finance to approve it.</text>
+<text x="248" y="641" class="small bold">Ujjwal</text><text x="319" y="641" class="small muted">23:21</text>
+<text x="248" y="672">How did you know it was waiting on finance?</text>
+<text x="248" y="722" class="small bold">Morgan</text><text x="325" y="722" class="small muted">23:30</text>
+<text x="248" y="754">I checked the spreadsheet and then sent a message.</text>
+<text x="800" y="366" class="bold">Questions</text><text x="1094" y="366" class="small muted">3 queued · 1 asked · 2 answered</text>
+<rect x="800" y="389" width="608" height="181" rx="10" fill="white" stroke="#adbcd6"/>
+<text x="820" y="418" class="small muted">FOLLOW UP · TRANSACTION APPROVAL</text>
+<text x="820" y="450" class="bold">What happened between receiving that request</text><text x="820" y="474" class="bold">and starting the transaction six hours later?</text>
+<text x="820" y="509" class="small" style="fill:#285ba6">Morgan · 22:53 ↗</text>
+<rect x="820" y="527" width="115" height="29" rx="6" fill="#17191c"/><text x="835" y="547" class="small white">Mark asked</text><text x="955" y="547" class="small muted">Dismiss</text>
+<rect x="800" y="582" width="608" height="101" rx="10" fill="white" stroke="#e1e4e8"/>
+<text x="820" y="611" class="small muted">QUEUED · IMPACT</text><text x="820" y="640">What did that six-hour wait delay for your team?</text><text x="820" y="665" class="small" style="fill:#285ba6">Morgan · 22:53 ↗</text>
+<rect x="800" y="695" width="608" height="101" rx="10" fill="white" stroke="#e1e4e8"/>
+<text x="820" y="724" class="small muted">QUEUED · CURRENT WORKAROUND</text><text x="820" y="753">Who updates the spreadsheet after finance approves?</text><text x="820" y="778" class="small" style="fill:#285ba6">Morgan · 23:30 ↗</text>
+<text x="800" y="830" class="small muted">Show asked and answered (3) ↓</text>
+<path d="M216 877H1440" class="line"/>
+<rect x="248" y="897" width="89" height="38" rx="8" fill="#f2f3f5"/><text x="275" y="921">Mute</text>
+<rect x="347" y="897" width="109" height="38" rx="8" fill="#f2f3f5"/><text x="363" y="921">Camera off</text>
+<rect x="466" y="897" width="89" height="38" rx="8" fill="#f2f3f5"/><text x="484" y="921">Devices</text>
+<text x="1066" y="921" class="muted">Leave</text><rect x="1167" y="897" width="241" height="38" rx="8" fill="#fff0f0"/><text x="1236" y="921" style="fill:#a42a32">End interview</text>
+</svg>

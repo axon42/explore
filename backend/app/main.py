@@ -18,6 +18,7 @@ from .pipeline import FIXTURE, Pipeline, PlaybackCommand
 from .replay import replay
 from .service import Service
 from .storage import Storage
+from .zoom_proof import router as zoom_proof_router
 
 logger = logging.getLogger("meeting")
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -132,6 +133,7 @@ def create_app(settings: Settings | None = None):
         return await service.ingest(session_id, event)
 
     app.include_router(router(service, pipeline, stop_session))
+    app.include_router(zoom_proof_router(settings))
 
     async def run_demo(session_id: str):
         try:

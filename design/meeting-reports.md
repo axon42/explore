@@ -53,5 +53,5 @@ Implementation follows the [live analysis plan](live-analysis.md): establish str
 Reports are formatted from accepted evidence without a separate model call. Mock extraction is a
 limited simulation; its explicit fixture pattern exercises workflow diagrams without claiming
 general workflow understanding. Unknown roles remain unknown. All transcript evidence is included.
-UI controls, structured editing of human notes, post-stop transcript corrections and human edits to
-generated reports are not implemented. Existing human notes are included verbatim in their section.
+Browser controls now support participant mappings, generated-note viewing, finalization and exports.
+Structured editing of human notes, post-stop transcript corrections and human edits to generated reports are not implemented. Existing human notes are included verbatim in their section.

@@ -1,7 +1,7 @@
 # Explore
 
 Customer-discovery interviews, organized by workspace. Replay a test interview or inject text,
-collect follow-up questions, inspect evidence, and keep meeting briefs and notes.
+collect follow-up questions, inspect evidence, and download meeting reports.
 
 ## Run
 
@@ -17,9 +17,10 @@ Open http://127.0.0.1:5173. Create a workspace and meeting, fill in the brief, t
 
 Analysis defaults to **simulated** responses with no API calls. To enable Gemini, copy `.env.example`
 to `.env`, set `ANALYSIS_PROVIDER=gemini` and `GEMINI_API_KEY`, then restart.
-Gemini receives the delivered transcript and bounded meeting context. A real-key smoke test is still pending.
+Gemini receives the delivered transcript and bounded meeting context. Automated tests use simulated analysis.
 
-**Reset test** clears transcript and analysis while retaining the brief and notes.
+Use **Report** to end the interview and download Markdown/JSON reports or the full transcript.
+**Reset test** clears transcript, analysis and reports while retaining the brief, participants and notes.
 **Clear meetings** deletes meetings and their data in the selected workspace.
 
 - [Data model and migration](docs/data-model.md)

@@ -29,6 +29,8 @@ test("workspace, brief, transcript, questions, evidence, notes and persistence",
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await create(page);
+  await expect(page.locator("html")).toHaveCSS("color-scheme", "light");
+  await expect(page.locator(".ex-brand svg circle")).toHaveCount(2);
   await page.getByRole("button", { name: "Brief", exact: true }).click();
   await page
     .getByLabel("Objective", { exact: true })
@@ -142,4 +144,52 @@ test("two viewers see the same questions and updated status", async ({
     other.getByRole("button", { name: "Mark answered", exact: true }),
   ).toBeVisible();
   await other.close();
+});
+
+test("local interview completes with participants, AI notes and downloadable report", async ({ page }) => {
+  await create(page);
+  await page.getByRole("button", { name: "Brief", exact: true }).click();
+  await page.getByRole("button", { name: "Add participant", exact: true }).click();
+  await page.getByLabel("Speaker ID", { exact: true }).fill("cofounder");
+  await page.locator(".ex-participants").getByLabel("Name", { exact: true }).fill("Alex Test");
+  await page.getByLabel("Job role", { exact: true }).fill("Founder");
+  await page.getByLabel("Interview role", { exact: true }).selectOption("interviewer");
+  await page.getByRole("button", { name: "Save participants", exact: true }).click();
+  await expect(page.getByText("Participants saved", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Interview", exact: true }).click();
+  await page.getByText("Inject dialogue", { exact: true }).click();
+  await page.getByLabel("Transcript text", { exact: true }).fill("Last Friday I used a spreadsheet to check reports for two hours.");
+  await page.getByRole("button", { name: "Inject", exact: true }).click();
+  await expect(page.locator(".ex-question")).toHaveCount(1);
+  await page.getByRole("button", { name: "Notes", exact: true }).click();
+  await page.getByText("AI notes", { exact: true }).click();
+  await expect(page.locator(".ex-generated")).toContainText("Alex Test");
+  await page.getByRole("button", { name: "Report", exact: true }).click();
+  await page.getByRole("button", { name: "End interview and generate report", exact: true }).click();
+  await expect(page.getByText("Report ready", { exact: true })).toBeVisible();
+  const downloadEvent = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download JSON", exact: true }).click();
+  const download = await downloadEvent;
+  const stream = await download.createReadStream();
+  const chunks = [];
+  for await (const chunk of stream!) chunks.push(chunk);
+  const report = JSON.parse(Buffer.concat(chunks).toString());
+  expect(report.sections[0].items[0].name).toBe("Alex Test");
+  expect(report.coverage.final_segments).toBe(1);
+  expect(report.coverage.processed_segments).toBe(1);
+  expect(report.evidence[0].text).toContain("Last Friday");
+  await page.screenshot({ path: "test-results/explore-report.png", fullPage: true });
+  await page.getByRole("button", { name: "Brief", exact: true }).click();
+  await page.locator(".ex-participants").getByLabel("Name", { exact: true }).fill("Alex Updated");
+  await page.getByRole("button", { name: "Save participants", exact: true }).click();
+  await expect(page.getByText("Participants saved", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Report", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Report 1 · Outdated" })).toBeVisible();
+  await page.route("**/api/meetings/*/reports/*?format=json", route => route.fulfill({ status: 503 }));
+  await page.getByRole("button", { name: "Download JSON", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("Download failed");
+  await page.unroute("**/api/meetings/*/reports/*?format=json");
+  const transcriptEvent = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export transcript JSON", exact: true }).click();
+  expect((await transcriptEvent).suggestedFilename()).toBe("explore-transcript.json");
 });
