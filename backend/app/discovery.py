@@ -3,9 +3,11 @@
 import json
 from uuid import uuid4
 
+from . import topic_storage
 from .analysis_state import empty_memory
 from .models import DomainError
 from .storage import now
+from .topics import normalize_intent
 
 
 def uid():
@@ -32,6 +34,52 @@ class Discovery:
             wid = uid()
             db.execute("INSERT INTO workspaces VALUES (?, ?, ?)", (wid, name.strip(), now()))
             return require(db, "workspaces", wid)
+
+    def preferences(self, mid, revision, interval=None, archived=None):
+        with self.storage.connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            meeting = require(db, "meetings", mid)
+            if meeting["context_version"] != revision:
+                raise DomainError("conflict", "Meeting changed. Refresh and retry.")
+            if (
+                archived
+                and db.execute(
+                    "SELECT 1 FROM sessions WHERE meeting_id=? AND status='live'", (mid,)
+                ).fetchone()
+            ):
+                raise DomainError("conflict", "Stop the meeting before archiving it.")
+            db.execute(
+                "UPDATE meetings SET question_interval=?, archived=?, "
+                "context_version=context_version+1, updated_at=? WHERE id=?",
+                (
+                    meeting["question_interval"] if interval is None else interval,
+                    meeting["archived"] if archived is None else int(archived),
+                    now(),
+                    mid,
+                ),
+            )
+            return require(db, "meetings", mid)
+
+    def question_allowed(self, sid):
+        with self.storage.connection() as db:
+            row = db.execute(
+                "SELECT m.question_interval FROM meetings m JOIN sessions s ON "
+                "s.meeting_id=m.id WHERE s.id=?",
+                (sid,),
+            ).fetchone()
+            interval = row[0]
+            if not interval:
+                return False
+            latest = db.execute(
+                "SELECT MAX(created_at) FROM questions WHERE session_id=?", (sid,)
+            ).fetchone()[0]
+            if latest:
+                from datetime import datetime
+
+                return (
+                    datetime.fromisoformat(now()) - datetime.fromisoformat(latest)
+                ).total_seconds() >= interval
+            return True
 
     def meetings(self, wid):
         with self.storage.connection() as db:
@@ -72,7 +120,8 @@ class Discovery:
                 dict(r)
                 for r in db.execute(
                     (
-                        "SELECT id,text,status FROM questions WHERE session_id=? ORDER BY "
+                        "SELECT id,text,CASE WHEN discarded=1 THEN 'discarded' "
+                        "ELSE status END AS status FROM questions WHERE session_id=? ORDER BY "
                         "created_at DESC LIMIT 30"
                     ),
                     (sid,),
@@ -116,6 +165,8 @@ class Discovery:
                 )
             ]
             for q in questions:
+                if q["discarded"]:
+                    q["status"] = "discarded"
                 q["evidence"] = self.evidence(db, "question", q["id"])
             run = db.execute(
                 "SELECT id,input_version,context_version,output_json FROM analysis_runs "
@@ -236,10 +287,16 @@ class Discovery:
                 raise DomainError("not_found", "Question not found", 404)
             if q["revision"] != revision:
                 raise DomainError("conflict", "Question changed. Reload and try again.")
-            if q["status"] != status:
+            if ("discarded" if q["discarded"] else q["status"]) != status:
                 db.execute(
-                    "UPDATE questions SET status=?, revision=revision+1,updated_at=? WHERE id=?",
-                    (status, now(), qid),
+                    "UPDATE questions SET status=?, discarded=?, "
+                    "revision=revision+1,updated_at=? WHERE id=?",
+                    (
+                        q["status"] if status == "discarded" else status,
+                        int(status == "discarded"),
+                        now(),
+                        qid,
+                    ),
                 )
                 db.execute(
                     "INSERT INTO question_status_events VALUES (?, ?, ?, ?)",
@@ -248,7 +305,15 @@ class Discovery:
                 db.execute(
                     "UPDATE meetings SET context_version=context_version+1 WHERE id=?", (mid,)
                 )
-            return require(db, "questions", qid)
+            result = require(db, "questions", qid)
+            if result["discarded"]:
+                result["status"] = "discarded"
+            return result
+
+    def topic_catalog(self, sid, context, memory):
+        with self.storage.connection() as db:
+            require(db, "sessions", sid)
+            return topic_storage.catalog(db, sid, context, memory)
 
     def record_run(self, sid, context, provider, run, memory=None):
         with self.storage.connection() as db:
@@ -298,10 +363,18 @@ class Discovery:
                         (key, sid, source, refs[source]),
                     )
 
-            if result["question"]:
+            if context.get("strategy") == "topics-v1":
+                topic_storage.persist(db, sid, rid, context, result, memory)
+            duplicate = context.get("strategy") == "topics-v1" and topic_storage.duplicate_intent(
+                db, sid, result
+            )
+            if result["question"] and not duplicate:
                 qid = uid()
                 inserted = db.execute(
-                    "INSERT OR IGNORE INTO questions VALUES (?, ?, ?, ?, ?, ?, 'queued', 0, ?, ?)",
+                    "INSERT OR IGNORE INTO "
+                    "questions(id,session_id,run_id,text,normalized,rationale,"
+                    "status,revision,created_at,updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, 'queued', 0, ?, ?)",
                     (
                         qid,
                         sid,
@@ -315,6 +388,16 @@ class Discovery:
                 ).rowcount
                 if inserted:
                     link("question", qid, result["source_ids"])
+                    if context.get("strategy") == "topics-v1":
+                        db.execute(
+                            "INSERT INTO question_topics VALUES (?,?,?,?)",
+                            (
+                                qid,
+                                result["topic"]["focus_id"],
+                                sid,
+                                normalize_intent(result["topic"]["question_intent"]),
+                            ),
+                        )
             for finding in result.get("findings", []):
                 fid = uid()
                 db.execute(
@@ -344,6 +427,8 @@ class Discovery:
         with self.storage.connection() as db:
             db.execute("BEGIN IMMEDIATE")
             meeting = require(db, "meetings", mid)
+            if meeting["archived"]:
+                raise DomainError("conflict", "Restore the meeting before resetting it.")
             self._clear_runs(db, mid)
             sid = uid()
             db.execute(
@@ -360,6 +445,7 @@ class Discovery:
     def _clear_runs(db, mid):
         sessions = [r[0] for r in db.execute("SELECT id FROM sessions WHERE meeting_id=?", (mid,))]
         for sid in sessions:
+            db.execute("DELETE FROM topics WHERE session_id=?", (sid,))
             for kind in ("question", "finding"):
                 db.execute(f"DELETE FROM {kind}_evidence WHERE session_id=?", (sid,))
             db.execute(

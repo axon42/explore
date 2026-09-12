@@ -3,6 +3,7 @@ import {
   ArrowRight,
   Check,
   ChevronRight,
+  CircleHelp,
   FileText,
   MessageSquare,
   Pause,
@@ -17,8 +18,11 @@ import {
 import { api, timestamp } from "../types";
 import type { Evidence, Question } from "./data";
 import { useMeeting } from "./useMeeting";
+import { groupTranscript } from "./transcript";
+import { AudioCapture } from "./AudioCapture";
 import { BriefEditor, Notes } from "./Editors";
 import { GeneratedNotes, Participants, Reports } from "./Records";
+import { DiscussionThreads } from "./DiscussionThreads";
 export function MeetingView({
   id,
   workspace,
@@ -88,16 +92,17 @@ export function MeetingView({
   const { detail, segments, experiment } = bundle;
   const sid = detail.session.id;
   const stopped = detail.session.status === "stopped";
+  const activeQuestions = detail.questions.filter((q) => q.status !== "discarded");
   const answered = detail.questions.filter(
     (q) => q.status === "answered",
   ).length;
   const asked = detail.questions.filter((q) => q.status === "asked").length;
   const shown = detail.questions
-    .filter((q) => filter === "all" || q.status === filter)
+    .filter((q) => filter === "all" ? q.status !== "discarded" : q.status === filter)
     .sort(
       (a, b) =>
-        ({ queued: 0, asked: 1, answered: 2 })[a.status] -
-        { queued: 0, asked: 1, answered: 2 }[b.status],
+        ({ queued: 0, asked: 1, answered: 2, discarded: 3 })[a.status] -
+        { queued: 0, asked: 1, answered: 2, discarded: 3 }[b.status],
     );
   async function update(q: Question) {
     await action(
@@ -145,17 +150,20 @@ export function MeetingView({
       <header className="ex-meeting-header">
         <div>
           <h1>{detail.meeting.title}</h1>
-          <p>
+          <p className="ex-meeting-meta">
+            <span className="ex-status" data-state={stopped ? "stopped" : "live"}>{stopped ? "Stopped" : "In progress"}</span>
             {detail.brief.customer || "Customer discovery"}
-            <span>·</span>
-            {stopped ? "Stopped" : "In progress"}
           </p>
         </div>
         <div className="ex-header-actions">
+          {!stopped && <a href={`/zoom-proof.html?session=${encodeURIComponent(sid)}`} target="_blank" rel="noopener noreferrer">Zoom test ↗</a>}
           <span className="ex-mode">
             {experiment.provider === "mock" ? "Simulated analysis" : "Gemini"}
           </span>
-          <button onClick={() => resetDialog.current?.showModal()}>
+          <button disabled={busy || (!stopped && !detail.meeting.archived)} title={!stopped ? "Stop the meeting before archiving" : undefined} onClick={() => void action(`/meetings/${id}/preferences`, {revision: detail.meeting.context_version, archived: !detail.meeting.archived}, "PATCH")}>
+            {detail.meeting.archived ? "Restore meeting" : "Archive meeting"}
+          </button>
+          <button disabled={!!detail.meeting.archived} onClick={() => resetDialog.current?.showModal()}>
             <RotateCcw size={14} />
             Reset test
           </button>
@@ -184,21 +192,13 @@ export function MeetingView({
       <div className="ex-content">
         {tab === "Interview" && (
           <>
-            <div className="ex-progress">
-              <div>
-                <strong>
-                  {answered} / {detail.questions.length}
-                </strong>{" "}
-                answered<span>{asked} asked</span>
-                <span>{detail.questions.length - answered - asked} queued</span>
-              </div>
-              <span>Question progress</span>
-            </div>
+            <AudioCapture key={sid} sid={sid} stopped={stopped} />
             <div className="ex-interview-grid">
+              <div className="ex-conversation">
               <section className="ex-transcript">
                 <div className="ex-panel-title">
                   <h2>
-                    <MessageSquare size={16} />
+                    <span className="ex-icon"><MessageSquare size={16} /></span>
                     Transcript
                   </h2>
                   <span>
@@ -237,34 +237,16 @@ export function MeetingView({
                     }
                   }}
                 >
-                  {segments.map((segment) => (
-                    <article
-                      className={
-                        focus?.segment_id === segment.segment_id
-                          ? "highlight"
-                          : ""
-                      }
-                      id={"source-" + segment.segment_id}
-                      key={segment.segment_id}
-                    >
+                  {groupTranscript(segments).map((group) => (
+                    <article key={group[0].segment_id}>
                       <header>
-                        <span
-                          className={
-                            "ex-avatar " +
-                            (segment.speaker_id === "customer"
-                              ? "customer"
-                              : "")
-                          }
-                        >
-                          {(segment.speaker_name || segment.speaker_id)[0]}
-                        </span>
-                        <strong>
-                          {segment.speaker_name || segment.speaker_id}
-                        </strong>
-                        <time>{timestamp(segment.start_ms)}</time>
-                        {!segment.is_final && <small>Draft</small>}
+                        <span className={"ex-avatar " + (group[0].speaker_id === "customer" ? "customer" : "")}>{(group[0].speaker_name || group[0].speaker_id)[0]}</span>
+                        <strong>{group[0].speaker_name || group[0].speaker_id}</strong>
+                        <time>{timestamp(group[0].start_ms)}</time>
                       </header>
-                      <p>{segment.text}</p>
+                      <p>{group.map((segment) => <span key={segment.segment_id} id={"source-" + segment.segment_id} className={focus?.segment_id === segment.segment_id ? "highlight" : undefined}>
+                        {segment.text}{!segment.is_final && <small> Draft</small>}{" "}
+                      </span>)}</p>
                     </article>
                   ))}
                   {!segments.length && (
@@ -393,10 +375,12 @@ export function MeetingView({
                   </form>
                 </details>
               </section>
+              <DiscussionThreads key={sid} mid={id} sid={sid} stopped={stopped} strategy={experiment.strategy} analyzing={experiment.analysis_status === "analyzing"} segments={segments} onEvidence={evidence} />
+              </div>
               <section className="ex-questions">
                 <div className="ex-panel-title">
                   <h2>
-                    <Sparkles size={16} />
+                    <span className="ex-icon ex-icon-ai"><Sparkles size={16} /></span>
                     Questions
                   </h2>
                   <span>
@@ -405,8 +389,23 @@ export function MeetingView({
                       : `${detail.questions.length} collected`}
                   </span>
                 </div>
+                <div className="ex-progress">
+                  <div>
+                    <strong>
+                      {answered} / {activeQuestions.length}
+                    </strong>{" "}
+                    answered<span>{asked} asked</span>
+                    <span>{activeQuestions.length - answered - asked} queued</span>
+                  </div>
+                  <label>Question frequency <select aria-label="Question frequency" disabled={busy} value={detail.meeting.question_interval} onChange={(e) => void action(`/meetings/${id}/preferences`, {revision: detail.meeting.context_version, question_interval: Number(e.target.value)}, "PATCH")}>
+                    <option value={30}>At most every 30 seconds</option>
+                    <option value={60}>At most every minute</option>
+                    <option value={120}>At most every 2 minutes</option>
+                    <option value={0}>Off · notes only</option>
+                  </select></label>
+                </div>
                 <div className="ex-filters">
-                  {["all", "queued", "asked", "answered"].map((name) => (
+                  {["all", "queued", "asked", "answered", "discarded"].map((name) => (
                     <button
                       key={name}
                       aria-pressed={filter === name}
@@ -415,7 +414,7 @@ export function MeetingView({
                       {name}
                       <span>
                         {name === "all"
-                          ? detail.questions.length
+                          ? activeQuestions.length
                           : detail.questions.filter((q) => q.status === name)
                               .length}
                       </span>
@@ -425,7 +424,7 @@ export function MeetingView({
                 {shown.map((q) => (
                   <article className={"ex-question " + q.status} key={q.id}>
                     <header>
-                      <span>{q.status}</span>
+                      <span className={`ex-question-status ${q.status}`}>{q.status}</span>
                       {q.evidence.some((e) => e.superseded) && (
                         <span>Evidence revised</span>
                       )}
@@ -445,12 +444,13 @@ export function MeetingView({
                           </button>
                         ))}
                       </div>
-                      <button disabled={busy} onClick={() => void update(q)}>
+                      {q.status !== "discarded" && <button className="ex-quiet" disabled={busy} onClick={() => void action(`/meetings/${id}/questions/${q.id}`, {revision: q.revision, status: "discarded"}, "PATCH")}>Discard</button>}
+                      <button className="ex-suggestion-action" disabled={busy} onClick={() => void update(q)}>
                         {q.status === "queued"
                           ? "Mark asked"
                           : q.status === "asked"
                             ? "Mark answered"
-                            : "Reopen"}
+                            : q.status === "discarded" ? "Restore" : "Reopen"}
                         <Check size={12} />
                       </button>
                     </footer>
@@ -472,7 +472,7 @@ export function MeetingView({
         {tab === "Overview" && (
           <section className="ex-overview">
             <div className="ex-summary">
-              <h2>Discussion so far</h2>
+              <h2><span className="ex-icon"><MessageSquare size={16} /></span>Discussion so far</h2>
               <p>
                 {detail.overview ||
                   "No analysis yet. Deliver a customer turn to begin."}
@@ -491,7 +491,7 @@ export function MeetingView({
               {detail.findings.map((f) => (
                 <article className={f.kind} key={f.id}>
                   <span className="ex-category">
-                    <Workflow size={13} />
+                    {f.kind === "gap" ? <CircleHelp size={13} /> : f.kind === "opportunity" ? <Sparkles size={13} /> : <Workflow size={13} />}
                     {f.kind === "opportunity"
                       ? "Automation possibility"
                       : f.kind}
@@ -529,12 +529,13 @@ export function MeetingView({
       <dialog
         ref={resetDialog}
         className="ex-dialog"
+        aria-labelledby="reset-dialog-title"
         onCancel={(e) => {
           if (busy) e.preventDefault();
         }}
       >
         <header>
-          <h2>Reset this test?</h2>
+          <h2 id="reset-dialog-title">Reset this test?</h2>
           <button
             aria-label="Close reset dialog"
             disabled={busy}

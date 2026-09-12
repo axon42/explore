@@ -1,0 +1,12 @@
+{
+  "id": "topic-switching-v1",
+  "scope": "Synthetic routing and timing contract; not a real-model quality evaluation",
+  "turns": [
+    {"text": "Our weekly reporting process takes six hours. We collect figures from three tools and put them in a spreadsheet before the team checks every line. There are several stages involved in preparing it. Let me explain…", "topic": "Operational reporting", "readiness": "developing", "question_allowed": false},
+    {"text": "The reporting checks involve comparing every spreadsheet total against the original tools. Last Friday the checks took two hours, and a reviewer repeated them before we sent the report.", "topic": "Operational reporting", "readiness": "ready", "question_allowed": true},
+    {"text": "Separately, recruiting has been difficult. We shortlist applicants manually and schedule calls with the team. Let me explain…", "topic": "Recruiting", "readiness": "developing", "question_allowed": false},
+    {"text": "Recruiting involves checking availability across four calendars. Last week that took three days before anyone could speak to the applicant.", "topic": "Recruiting", "readiness": "ready", "question_allowed": true},
+    {"text": "Back to reporting: we already discussed the impact. The six hours include time waiting for a reviewer, as well as the two hours of checking.", "topic": "Operational reporting", "readiness": "ready", "question_allowed": false},
+    {"text": "No, that delay happened only once.", "topic": "Operational reporting", "readiness": "ready", "question_allowed": false}
+  ]
+}

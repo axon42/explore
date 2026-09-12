@@ -2,6 +2,8 @@
 
 import json
 
+from .topic_storage import DDL as TOPIC_DDL
+
 DDL = [
     (
         "CREATE TABLE workspaces(id TEXT PRIMARY KEY, name TEXT NOT NULL "
@@ -127,6 +129,37 @@ def migrate(db, timestamp):
         for statement in DDL_V2:
             db.execute(statement)
         db.execute("INSERT INTO schema_migrations VALUES (2, ?)", (timestamp,))
+    if not db.execute("SELECT 1 FROM schema_migrations WHERE version=3").fetchone():
+        if not db.in_transaction:
+            db.execute("BEGIN IMMEDIATE")
+        db.execute(
+            "ALTER TABLE meetings ADD COLUMN archived INTEGER NOT NULL DEFAULT "
+            "0 CHECK(archived IN (0,1))"
+        )
+        db.execute(
+            "ALTER TABLE meetings ADD COLUMN question_interval INTEGER NOT "
+            "NULL DEFAULT 60 CHECK(question_interval IN (30,60,120,0))"
+        )
+        db.execute(
+            "ALTER TABLE questions ADD COLUMN discarded INTEGER NOT NULL "
+            "DEFAULT 0 CHECK(discarded IN (0,1))"
+        )
+        db.execute("INSERT INTO schema_migrations VALUES (3, ?)", (timestamp,))
+    if not db.execute("SELECT 1 FROM schema_migrations WHERE version=4").fetchone():
+        if not db.in_transaction:
+            db.execute("BEGIN IMMEDIATE")
+        for statement in TOPIC_DDL:
+            db.execute(statement)
+        db.execute("INSERT INTO schema_migrations VALUES (4, ?)", (timestamp,))
+    if not db.execute("SELECT 1 FROM schema_migrations WHERE version=5").fetchone():
+        if not db.in_transaction:
+            db.execute("BEGIN IMMEDIATE")
+        db.execute(
+            "CREATE TABLE analysis_preferences(id INTEGER PRIMARY KEY CHECK(id=1), "
+            "strategy TEXT NOT NULL CHECK(strategy IN ('legacy','topics')), "
+            "revision INTEGER NOT NULL CHECK(revision>=1))"
+        )
+        db.execute("INSERT INTO schema_migrations VALUES (5, ?)", (timestamp,))
     db.execute(
         "UPDATE report_jobs SET status='failed', error='Interrupted; retry finalization.' "
         "WHERE status IN ('pending','generating')"

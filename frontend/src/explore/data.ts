@@ -5,6 +5,8 @@ export type Meeting = {
   workspace_id: string;
   title: string;
   context_version: number;
+  archived: number;
+  question_interval: 0 | 30 | 60 | 120;
 };
 export type Brief = {
   title: string;
@@ -38,7 +40,7 @@ export type Question = {
   id: string;
   text: string;
   rationale: string;
-  status: "queued" | "asked" | "answered";
+  status: "queued" | "asked" | "answered" | "discarded";
   revision: number;
   evidence: Evidence[];
 };
@@ -69,6 +71,7 @@ export type Detail = {
   notes: Note[];
 };
 export type Experiment = {
+  strategy?: string;
   cursor: number;
   total: number;
   playing: boolean;

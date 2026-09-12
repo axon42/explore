@@ -9,12 +9,16 @@ import {
 import { api } from "../types";
 import type { Detail, Meeting, Workspace } from "./data";
 import { MeetingView } from "./MeetingView";
+import { AnalysisSettings } from "./AnalysisSettings";
 import { Logo } from "./Logo";
+import "./theme.css";
 import "./explore.css";
+import "./records.css";
 export default function Explore() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [wid, setWid] = useState("");
   const [mid, setMid] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -165,8 +169,9 @@ export default function Explore() {
             <Plus size={16} />
           </button>
         </div>
+        <button className="ex-archive-toggle" aria-pressed={showArchived} onClick={() => setShowArchived(!showArchived)}>{showArchived ? "Show active meetings" : "Show archived meetings"}</button>
         <nav aria-label="Meetings">
-          {meetings.map((m) => (
+          {meetings.filter((m) => !!m.archived === showArchived).map((m) => (
             <button
               key={m.id}
               className={mid === m.id ? "selected" : ""}
@@ -182,6 +187,7 @@ export default function Explore() {
           ))}
         </nav>
         <div className="ex-sidebar-bottom">
+          <AnalysisSettings />
           <span>Local workspace</span>
           <button
             disabled={!wid || !meetings.length}
@@ -224,6 +230,7 @@ export default function Explore() {
       </main>
       <dialog
         className="ex-dialog"
+        aria-labelledby="workspace-dialog-title"
         ref={dialog}
         onCancel={(e) => {
           if (busy) e.preventDefault();
@@ -236,7 +243,7 @@ export default function Explore() {
           }}
         >
           <header>
-            <h2>
+            <h2 id="workspace-dialog-title">
               {modal === "workspace"
                 ? "New workspace"
                 : modal === "meeting"
@@ -263,6 +270,7 @@ export default function Explore() {
               Name
               <input
                 autoFocus
+                disabled={busy}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 maxLength={120}

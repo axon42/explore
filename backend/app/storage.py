@@ -95,7 +95,9 @@ class Storage:
             session_id, meeting_id = str(uuid4()), str(uuid4())
             title = (title or "").strip() or "Untitled session"
             db.execute(
-                "INSERT INTO meetings VALUES (?, ?, ?, 0, ?, ?)",
+                "INSERT INTO "
+                "meetings(id,workspace_id,title,context_version,"
+                "created_at,updated_at) VALUES (?, ?, ?, 0, ?, ?)",
                 (meeting_id, workspace_id, title, now(), now()),
             )
             db.execute(

@@ -1,5 +1,8 @@
 # Explore video interviews — design proposal
 
+Superseded product direction: use [Zoom desktop + Explore](zoom-meetings.md). This document
+retains the earlier Video SDK proposal and local proof history; do not extend its conferencing UI.
+
 2026-09-11. Scope: plan and UI concept, not an implemented conferencing feature.
 Extends the [release plan](interview-ready-release.md); analysis quality improvements remain Stage 2.
 
@@ -96,3 +99,28 @@ Budget enforcement precedes paid usage: one active interview, maximum duration, 
 5. Private hosted rehearsal with four participants for 60 minutes; verify restart recovery, backup restore, browser/device compatibility and bounded spending before customers. Keep the one-instance architecture only if the SDK/RTMS proof fits it.
 
 Open decisions: first interview date; whether browser Print / Save as PDF is sufficient or a direct PDF download is required. First pilot proposes no screen sharing, recording retention or automatic guest report delivery; add these only when needed.
+
+
+### Local pilot connection checkpoint
+
+A deliberately bounded local test now links the standalone Zoom page to a fresh Explore run via
+server-issued session_key. It reuses the signed inbox and transcript-only WebSocket adapter;
+Service.ingest retains the existing analysis/evidence boundary. One connection attempt and a
+two-minute capture window simplify the first account validation. This is not authenticated guest
+hosting, restart recovery, a monetary cap, or the final embedded video layout. User manually monitors
+credits and ends the Zoom session. No additional dependencies or audio storage are introduced.
+
+### Test console repair — 2026-09-12
+- The test shell now owns its light layout; the pinned toolkit runs inside a same-origin iframe
+  with explicit camera/microphone permissions. Its global CSS cannot reset Explore controls.
+- `zoom-sdk.js` isolates SDK loading/lifecycle from the test controller. Toolkit 2.5.0-1 throws
+  when callbacks are registered before `joinSession` initializes its controller. Initialize first,
+  subscribe immediately, then await the join promise. A real-bundle synthetic preview check covers this.
+- Session activity uses SDK participant/host/audio state and short-lived BroadcastChannel heartbeats.
+  Host tabs can receive an explicit end request from another Explore test tab, including an older
+  connection generation. This is browser-local visibility, not an account-wide Zoom session inventory.
+- End for everyone calls the host SDK and requires successful completion. Disconnect cancels pending
+  preview and releases backend ingestion/binding without claiming that a live remote call ended.
+  An already connected host remains accessible so it can still end the call. Saved evidence is retained.
+- Closed tabs, other browsers, and backend restarts cannot establish remote call status. Account-wide
+  discovery/termination requires a separate authenticated Zoom administrative API integration.

@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     data_dir: Path = ROOT / "data"
     ingestion_token: SecretStr = SecretStr("")
     demo_enabled: bool = True
+    analysis_strategy: Literal["legacy", "topics"] = "legacy"
     analysis_provider: Literal["mock", "gemini"] = "mock"
     gemini_api_key: SecretStr = SecretStr("")
     gemini_model: str = Field(default="gemini-3.1-flash-lite", pattern=r"^[a-zA-Z0-9.-]+$")
@@ -22,6 +23,8 @@ class Settings(BaseSettings):
     subscriber_queue_size: int = Field(default=128, ge=1)
     zoom_video_sdk_key: SecretStr = SecretStr("")
     zoom_video_sdk_secret: SecretStr = SecretStr("")
+    deepgram_api_key: SecretStr = SecretStr("")
+    audio_capture_max_seconds: int = Field(default=120, ge=30, le=600)
     zoom_proof_enabled: bool = False
     zoom_webhook_secret_token: SecretStr = SecretStr("")
 

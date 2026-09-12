@@ -40,7 +40,7 @@ Store workflow structure separately from rendered Mermaid: nodes for actors/acti
 
 Only draw connections supported by the interview, or visibly label them as uncertain. Do not imply timing, order or causal relationships that were not established. Include a textual step list and evidence references alongside each diagram so exports remain useful without a renderer. If there is insufficient detail, report the gap rather than invent a flowchart.
 
-Mermaid is the editable diagram export format. No UI renderer is installed. When adding one, verify a maintained compatible renderer and use strict settings that disallow arbitrary HTML/click actions. Diagram size is bounded. Markdown and JSON are implemented export formats; PDF is deferred.
+Mermaid remains the editable diagram export format. The browser renders the current bounded, linear step contract directly as semantic HTML with CSS connectors. It never evaluates saved Mermaid or model HTML. Unsupported order uses a dashed connector and an explicit label. This avoids a general graph dependency for a small ordered-list view; reconsider a maintained graph renderer if branching/layout needs expand. Markdown and JSON are implemented export formats; PDF is deferred.
 
 ## Modular boundaries and checks
 Reuse the analysis coordinator, model adapter and validator. A report strategy receives a read-only evidence snapshot and returns a structured report proposal; an exporter renders saved records without a model call. The diagram renderer consumes validated workflow data. These boundaries allow provider, reasoning and output formats to change independently.
@@ -55,3 +55,9 @@ limited simulation; its explicit fixture pattern exercises workflow diagrams wit
 general workflow understanding. Unknown roles remain unknown. All transcript evidence is included.
 Browser controls now support participant mappings, generated-note viewing, finalization and exports.
 Structured editing of human notes, post-stop transcript corrections and human edits to generated reports are not implemented. Existing human notes are included verbatim in their section.
+
+## Topic-aware synthesis (opt-in)
+See [topic memory](topic-memory.md#notes-overview-and-final-report). Keep the existing section
+order, group accepted findings within sections by topic, and cover paused as well as active
+topics. Topic membership alone must not imply workflow sequence or causality. Reports containing topics use schema/strategy version 2. Existing immutable reports remain
+unchanged. Live notes expose additive topic groups; the browser renders these groups in notes and the saved report reader.

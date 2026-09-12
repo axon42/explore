@@ -1,0 +1,33 @@
+/* Shared semantic tokens for Explore. Topic identity is separate from status. */
+.explore {
+  --bg: #f5f7fb;
+  --surface: #ffffff;
+  --sidebar: #ebf0f8;
+  --raised: #f8faff;
+  --line: #d6e0ef;
+  --line-soft: #e8edf5;
+  --text: #1c2940;
+  --muted: #5e6d83;
+  --accent: #315bd3;
+  --accent-hover: #2447ad;
+  --accent-soft: #edf2ff;
+  --accent-line: #c8d6ff;
+  --live: #22684e;
+  --live-soft: #eaf5ee;
+  --live-line: #bedfce;
+  --ai: #7150a6;
+  --ai-soft: #f2eef9;
+  --ai-line: #dbceef;
+  --gap: #8a5918;
+  --gap-soft: #fff4df;
+  --gap-line: #ebd3a2;
+  --danger: #ad3444;
+  --danger-soft: #fff0f1;
+  --danger-line: #efc4cb;
+  --disabled: #5e6d83;
+  --disabled-bg: #eaf0f6;
+  --radius: 12px;
+  --control-radius: 8px;
+  --card-shadow: 0 2px 5px #1c294008;
+  --overlay-shadow: 0 24px 80px #1c294033;
+}

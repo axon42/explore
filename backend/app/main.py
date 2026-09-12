@@ -10,6 +10,8 @@ from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
+from .audio.capture import AudioCapture
+from .audio.capture import router as audio_router
 from .broadcast import Broadcaster
 from .config import Settings
 from .discovery_api import router
@@ -18,6 +20,7 @@ from .pipeline import FIXTURE, Pipeline, PlaybackCommand
 from .replay import replay
 from .service import Service
 from .storage import Storage
+from .zoom_capture import ZoomCapture
 from .zoom_proof import router as zoom_proof_router
 
 logger = logging.getLogger("meeting")
@@ -35,6 +38,8 @@ def create_app(settings: Settings | None = None):
     service = Service(storage, broker)
     pipeline = Pipeline(service, settings)
     service.on_final = pipeline.notify
+    capture = ZoomCapture(service, settings)
+    audio_capture = AudioCapture(service, settings)
     replays: dict[str, asyncio.Task] = {}
     sockets: set[WebSocket] = set()
 
@@ -43,6 +48,8 @@ def create_app(settings: Settings | None = None):
         recovered = await asyncio.to_thread(storage.initialize)
         log("startup", interrupted_sessions=recovered)
         yield
+        await audio_capture.stop()
+        await capture.close()
         await pipeline.close()
         for task in replays.values():
             task.cancel()
@@ -59,6 +66,7 @@ def create_app(settings: Settings | None = None):
                 storage.stop(session["id"])
 
     app = FastAPI(title="Explore", lifespan=lifespan)
+    app.state.audio_capture = audio_capture
     app.state.pipeline = pipeline
     app.state.service = service
     app.state.replays = replays
@@ -98,7 +106,9 @@ def create_app(settings: Settings | None = None):
         return await service.read(storage.snapshot, session_id)
 
     async def stop_session(session_id: str, finalize: bool = True):
-        session = await service.stop(session_id)
+        if capture.binding and capture.binding["sid"] == session_id:
+            await capture.close()
+        session = await audio_capture.finish_session(session_id)
         active = pipeline.report_workers.get(session_id)
         if finalize and active and not active.done():
             return session
@@ -133,7 +143,8 @@ def create_app(settings: Settings | None = None):
         return await service.ingest(session_id, event)
 
     app.include_router(router(service, pipeline, stop_session))
-    app.include_router(zoom_proof_router(settings))
+    app.include_router(zoom_proof_router(settings, capture))
+    app.include_router(audio_router(audio_capture, settings))
 
     async def run_demo(session_id: str):
         try:
