@@ -4,6 +4,12 @@
 [implementation reference](../docs/analysis.md). Gemini passed the synthetic integration check (four segments, evidence-linked question and report). The design below records
 the intended boundaries; the implementation choices section identifies remaining differences.
 
+## Topic-memory strategy
+
+[Topic memory within a meeting](topic-memory.md) is implemented as the opt-in Discussion threads mode in the bottom-left Analysis mode control:
+persistent topics, switching/resuming, readiness and bounded evidence retrieval. The default
+remains `legacy`; real-provider evaluation is pending. The browser now displays topic context and report groupings.
+
 ## How it works
 The LLM receives a small packet every time enough new dialogue arrives: the new words, recent conversation, interview goals and what Explore already knows. It returns proposed updates. Explore validates and saves them, then includes the updated state in the next packet. The model does not continuously listen or independently remember the meeting.
 
@@ -73,7 +79,9 @@ Keep the existing provider adapter and local source of truth. Verify a real Gemi
 
 ## Triggering
 - Show interim transcript immediately; analyze finalized text.
-- Combine final segments into conversational chunks. Starting defaults to evaluate: customer speaker change or 1–1.5 seconds without new text; maximum 5 seconds since the first unprocessed final segment during long answers.
+- Current timing is specified in [live pacing refinement](#live-pacing-refinement--2026-09-12).
+  Topic boundaries and semantic readiness are handled by the opt-in [topic memory](topic-memory.md);
+  a quiet window does not prove a topic or speaking turn is complete.
 - A provider-final sentence is not necessarily a finished speaking turn. Replay should exercise multiple sentences per turn, pauses and interruptions. Short corrections/negations are meaningful, even without many words.
 - Keep a per-session analysis watermark. Send new finalized dialogue plus recent conversational context; never discard raw transcript after processing.
 - One active urgent call and one coalesced pending batch. Silence creates no repeated calls.
@@ -129,3 +137,25 @@ Corrected source dependencies are already removed from current memory, with orig
 OpenAI Agents API provides a managed harness with durable sessions, orchestration, compaction, recovery and tools. Potential later job: search workspace meetings/notes, inspect contradictory evidence and prepare an evidence-linked synthesis. Agents SDK runs orchestration in our application; Responses API exposes model calls and tools. These do not decide Explore's transcript chunking or evidence policy for us. Keep live Gemini analysis independent of optional later agent execution.
 
 Sources: [OpenAI Agents API](https://developers.openai.com/api/docs/guides/agents-api/overview), [Agents SDK](https://developers.openai.com/api/docs/guides/agents/sdk), [Gemini structured outputs](https://ai.google.dev/gemini-api/docs/generate-content/structured-output).
+
+## Live pacing refinement — 2026-09-12
+- Native audio batches wait for four seconds without a new finalized fragment, with a
+  25-second maximum collection window. A maximum-window flush updates notes only;
+  question eligibility requires the quiet window. Require at least 35 words in the selected context
+  before a live call; shorter opening fragments remain pending. Finalization bypasses this
+  threshold so no accepted evidence is omitted. Replay/injection retain the fast test cadence.
+- Context accepts up to 60 fragments within its existing 24K-character new-text budget,
+  preventing tiny STT segments from displacing useful context. Stored text is never merged
+  or truncated. Display groups consecutive same-speaker segments across gaps up to eight
+  seconds, bounded to one minute per paragraph; each source retains its highlight anchor.
+- Each meeting stores a question interval: 30, 60 (default), 120 seconds, or off. This is a
+  minimum interval between persisted suggestions, not a promise to produce a question.
+  Notes still update when questions are off or cooling down. The repository checks the
+  latest persisted question timestamp, so restarting does not reset the interval.
+- A second check before committing suppresses questions when new final speech is pending,
+  interim text remains, the interval has not elapsed, or finalization is running. The
+  prompt asks for no question while a thought is incomplete and includes discarded history.
+  These are conservative heuristics, not semantic turn detection; real interview evaluation
+  remains necessary to tune completeness and question quality.
+- Discard is reversible and retains source evidence, status history and deduplication.
+  Discarded questions are excluded from active progress; restoring returns them to queued.

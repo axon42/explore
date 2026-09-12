@@ -71,3 +71,42 @@ See [analysis and report APIs](analysis.md) for coverage, exports and finalizati
 ## Future context brain
 
 Build retrieval over meeting briefs, note revisions and transcript evidence. Store derived claims with their run provenance and exact citations; do not overwrite original observations with agent summaries. Cross-meeting retrieval, embeddings, authors/permissions, automatic answer-span detection, pagination and retention policies are not implemented here. This remains a single-host MVP, not a multi-tenant hosted service.
+
+## Meeting controls (migration 3)
+`meetings.archived` is a checked boolean, and `question_interval` is one of 0/30/60/120
+seconds (default 60). `PATCH /meetings/{id}/preferences` requires the current
+`context_version` as `revision`; updates increment it and invalidate stale analysis.
+Archiving requires a stopped session, preserves all content and is reversible. Restore a
+meeting before resetting its test. Workspace clear retains its explicit all-meetings scope.
+
+`questions.discarded` preserves the previous stored status while the API projects
+`status=discarded` in question lists, context and exports. Discard/restore use the existing
+revision-checked question endpoint and append status events. Original evidence remains intact.
+The migration adds columns transactionally, backfills defaults, and preserves existing keys.
+
+## Topic memory (migration 4)
+- `topics`: session-owned stable IDs, title/summary with exact summary source revisions,
+  optimistic projection revision and latest owning analysis run. Active/paused status derives
+  from `analysis_state.topic_state.focus_id`; old runs preserve proposal provenance.
+- `topic_evidence`: many-to-many topic/source revision links, with accepted/provisional assignment.
+- `topic_artifacts`: current claim/workflow key associations, rebuilt with accepted memory.
+  JSON artifact references are validated in application code; topic ownership has composite FKs.
+- `question_topics`: question/topic/session link and normalized intent, unique within that
+  session/topic. Discard/restore preserves it, preventing exact-intent reissues.
+
+Migration 4 leaves existing sessions/topics unassigned and makes no provider calls. Run reset
+removes topic rows before dependent transcript/run records; archive retains them. Foreign keys
+and transaction rollback protect cross-session evidence and atomic state/run/topic writes.
+Current summaries whose sources were corrected are withheld until refreshed; old versions remain
+in analysis runs. The [topic design](../design/topic-memory.md#storage-and-contracts) records the
+boundaries and limitations. Existing human content and transcript revision retention are unchanged.
+
+
+## Analysis preference (migration 5)
+`analysis_preferences` contains at most one local-app row: `id=1`, checked `strategy`
+(`legacy` or `topics`) and a positive optimistic `revision`. It deliberately has no session or
+workspace foreign key: the bottom-left control affects new batches throughout this local app.
+Creation/update is transactional; concurrent stale writes fail instead of overwriting. Before
+the first save, the server's initial mode is returned with revision 0. After a save, database
+state takes precedence. Meeting reset/archive and workspace clear preserve the preference.
+The migration changes no existing interview records and triggers no provider work.

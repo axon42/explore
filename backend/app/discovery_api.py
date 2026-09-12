@@ -50,7 +50,18 @@ class ResetRun(StrictBody):
 
 class QuestionUpdate(StrictBody):
     revision: int = Field(ge=0)
-    status: Literal["queued", "asked", "answered"]
+    status: Literal["queued", "asked", "answered", "discarded"]
+
+
+class Preferences(StrictBody):
+    revision: int = Field(ge=0)
+    question_interval: Literal[0, 30, 60, 120] | None = None
+    archived: bool | None = None
+
+
+class AnalysisPreferencesUpdate(StrictBody):
+    strategy: Literal["legacy", "topics"]
+    revision: int = Field(ge=0, strict=True)
 
 
 class Participant(StrictBody):
@@ -77,6 +88,14 @@ def router(service, pipeline, stop_session):
     reports = Reports(service.storage)
     mutation = asyncio.Lock()
 
+    @api.get("/settings/analysis")
+    async def analysis_preferences():
+        return await service.read(pipeline.preferences.get)
+
+    @api.patch("/settings/analysis")
+    async def update_analysis_preferences(body: AnalysisPreferencesUpdate):
+        return await service.read(pipeline.preferences.update, body.strategy, body.revision)
+
     @api.get("/workspaces")
     async def workspaces():
         return await service.read(repo.workspaces)
@@ -98,6 +117,13 @@ def router(service, pipeline, stop_session):
     @api.get("/meetings/{mid}")
     async def meeting(mid: str):
         return await service.read(repo.detail, mid)
+
+    @api.patch("/meetings/{mid}/preferences")
+    async def preferences(mid: str, body: Preferences):
+        async with mutation:
+            return await service.read(
+                repo.preferences, mid, body.revision, body.question_interval, body.archived
+            )
 
     async def changed(mid):
         detail = await service.read(repo.detail, mid)

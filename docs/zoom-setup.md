@@ -87,3 +87,72 @@ Then enter it in Zoom, click Validate and Save. No public URL has been provision
 - [Join token contract](https://developers.zoom.us/docs/video-sdk/auth/)
 - [Official UI Toolkit](https://developers.zoom.us/docs/video-sdk/web/ui-toolkit/)
 - [RTMS account prerequisites and events](https://developers.zoom.us/docs/rtms/video-sdk/add-features/)
+
+## RTMS transport checkpoint
+
+`app.zoom_rtms` now provides a transcript-only WebSocket transport with signed signaling/media
+handshakes, keep-alive replies, bounded socket queues/timeouts and cancellation cleanup. It uses
+existing `websockets` and rejects endpoints outside RTMS-prefixed Zoom hosts. Packet normalization
+preserves distinct utterances and deduplicates identical stream/speaker/timestamp/text packets;
+Zoom provides utterance start times, so duration is not inferred. It does not infer corrections.
+
+This transport is not yet activated by the application. A session-ownership coordinator, durable
+capture lifecycle/budget controls and host UI wiring are still required before live use. Tests use
+synthetic sockets and no credits. Billing remains unresolved: Build Platform billing documentation
+describes plan management but does not document a disable-overage switch. Do not assume that a
+trial or application timer guarantees a zero invoice.
+
+
+## Local live transcript test (connected pilot)
+
+The user authorized a manually monitored trial test. Enable `ZOOM_PROOF_ENABLED=true` only for
+this run. In Explore, create a fresh meeting, then use **Zoom test**. The same link may be opened
+in a second local tab. First join is host; subsequent joins are participants (four tokens maximum).
+After joining, the host explicitly presses **Start transcription (2 minutes)**. Speak synthetic
+interview dialogue and watch the selected Explore meeting for transcript and analysis updates.
+Use **Stop transcription**, then Zoom **End for everyone**. Explore's Report tab can finalize the
+received transcript after capture stops. The timer is not a billing cap and does not end video.
+
+`ZoomCapture` now binds the server-generated JWT `session_key` to exactly one fresh local run.
+It polls the signed inbox, connects once to matching RTMS events, rejects stop-before-start streams,
+and delivers through `Service.ingest`. Failed streams do not reconnect automatically. Stopping or
+resetting the Explore run cancels capture. Only this ephemeral local pilot is implemented: restart
+loses its binding and cannot recover missed speech. Captured evidence persists in normal transcript
+storage. Keep a note of any capture interruption; reports cover received speech only.
+
+The existing isolated receiver remains on localhost:8002 and its existing Cloudflare tunnel is
+reused; the main app is not exposed. The Toolkit's documented debug-mode client access enables
+host RTMS controls in the separate local test page. Never share browser debug logs containing
+provider session details. Real account handshake, SDK RTMS availability and latency still require
+the user's live test; synthetic transport/coordinator/browser tests do not prove those capabilities.
+
+
+## Disconnect and capture diagnostics
+
+**Disconnect test** cancels and awaits the local capture worker, releases its binding, rotates
+room/passcode/session identity and restores four join slots for the next explicitly started test.
+It does not delete meeting data. Generation checks reject stale disconnect/start/stop requests;
+join and disconnect are serialized. Old Zoom JWTs cannot be revoked locally, but refer to the old
+room and cannot route transcripts into the new binding. From the connected host browser the UI
+also requests Zoom end-for-everyone; without that host connection it cannot guarantee the old
+Zoom call or its billing has stopped. End the old call before starting another.
+
+Capture availability is checked repeatedly after joining, with visible reasons for participant
+role, missing SDK RTMS controls, unsupported sessions and not-ready state. Event handlers are
+registered before join so synchronous/early join notifications cannot be missed. Account/browser
+RTMS support still needs live verification. Firefox remains the user's testing browser on 5173.
+
+### Updated test controls
+Use Firefox at `http://127.0.0.1:5173` and open a meeting's Zoom test link.
+1. Clear an old pending connection with **Disconnect test**, then reload the same link.
+2. **Start Zoom preview**, allow microphone access, and join in the Zoom panel.
+3. Check **Host · this tab** and microphone status, then **Start transcription (2 minutes)**.
+4. **End Zoom for everyone** ends the host call. Connected host tabs also expose **End this session**
+   to other test tabs in the same browser. Wait for confirmation before resetting.
+
+Disconnect clears local ingestion and cancels pending preview; it does not terminate a remote call.
+Keep the host tab open until ending. Session activity cannot discover calls in another browser or
+closed tabs. Do not interpret an empty list as proof that Zoom billing has stopped.
+
+Test shell assets: `zoom-proof.html`, `zoom-proof.css`, `zoom-proof.js`; isolated SDK adapter:
+`zoom-sdk.js` + `zoom-frame.html`. No frontend framework or dependency added.

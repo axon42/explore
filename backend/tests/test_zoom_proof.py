@@ -54,3 +54,44 @@ def test_proof_tokens_are_scoped_and_bounded(tmp_path):
             rooms.add(claims["tpc"])
         assert len(rooms) == 1
         assert client.post(path, json={"name": "Fifth"}, headers=headers).status_code == 429
+
+
+def test_disconnect_rotates_room_rejects_stale_controls_and_preserves_transcript(tmp_path):
+    settings = Settings(
+        data_dir=tmp_path,
+        zoom_proof_enabled=True,
+        zoom_video_sdk_key="fake",
+        zoom_video_sdk_secret="x" * 32,
+    )
+    with TestClient(create_app(settings)) as client:
+        root = "/integrations/zoom/proof"
+        headers = {"Origin": "http://localhost:5173"}
+        generation = client.get(root).json()["generation"]
+        before = client.post(
+            root + "/join", json={"name": "First", "generation": generation}, headers=headers
+        ).json()
+        assert client.post(root + "/disconnect", json={"generation": generation}).status_code == 403
+        result = client.post(root + "/disconnect", json={"generation": generation}, headers=headers)
+        assert result.status_code == 200 and not result.json()["zoom_call_ended"]
+        for path in ("/disconnect", "/capture", "/capture/stop"):
+            assert (
+                client.post(
+                    root + path, json={"generation": generation}, headers=headers
+                ).status_code
+                == 409
+            )
+        assert (
+            client.post(
+                root + "/join", json={"name": "Stale", "generation": generation}, headers=headers
+            ).status_code
+            == 409
+        )
+        state = client.get(root).json()
+        assert state["remaining_tokens"] == 4
+        after = client.post(
+            root + "/join",
+            json={"name": "Next", "generation": state["generation"]},
+            headers=headers,
+        ).json()
+        assert before["sessionName"] != after["sessionName"]
+        assert jwt.decode(after["videoSDKJWT"], "x" * 32, algorithms=["HS256"])["role_type"] == 1

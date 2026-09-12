@@ -1,8 +1,8 @@
 """Launch and supervise both localhost processes; Ctrl-C cleans up both groups."""
 
 import os
-import signal
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -66,7 +66,9 @@ finally:
     for child in children:
         if child.poll() is None:
             if os.name == "nt":
-                subprocess.run(["taskkill", "/PID", str(child.pid), "/T", "/F"], check=False)
+                subprocess.run(
+                    ["taskkill", "/PID", str(child.pid), "/T", "/F"], check=False
+                )
             else:
                 os.killpg(child.pid, signal.SIGTERM)
     for child in children:

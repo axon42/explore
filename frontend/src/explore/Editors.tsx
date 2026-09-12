@@ -47,6 +47,7 @@ export function BriefEditor({
           {briefLabels[key]}
           {["title", "customer", "vertical"].includes(key) ? (
             <input
+              disabled={busy}
               value={draft[key]}
               maxLength={key === "title" ? 120 : 500}
               required={key === "title"}
@@ -54,6 +55,7 @@ export function BriefEditor({
             />
           ) : (
             <textarea
+              disabled={busy}
               rows={3}
               maxLength={key === "background" ? 3000 : 2000}
               value={draft[key]}
@@ -112,6 +114,7 @@ export function Notes({
         <label>
           {editing ? "Edit note" : "Meeting note"}
           <textarea
+            disabled={busy}
             rows={4}
             maxLength={4000}
             value={body}
@@ -124,6 +127,7 @@ export function Notes({
           {editing && (
             <button
               type="button"
+              disabled={busy}
               onClick={() => {
                 setEditing(undefined);
                 setBody("");

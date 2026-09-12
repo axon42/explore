@@ -1,5 +1,6 @@
 """Local-only, explicit opt-in Video SDK account proof, separate from meeting data."""
 
+import asyncio
 import secrets
 import time
 from uuid import uuid4
@@ -15,14 +16,23 @@ from .models import DomainError
 class JoinProof(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=60, pattern=r"\S")
+    session_id: str | None = Field(default=None, max_length=200)
+    generation: str | None = Field(default=None, max_length=100)
 
 
-def router(settings: Settings) -> APIRouter:
+class Disconnect(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    generation: str = Field(min_length=1, max_length=100)
+
+
+def router(settings: Settings, capture=None) -> APIRouter:
     routes = APIRouter(prefix="/integrations/zoom/proof")
     # One random room per backend lifetime; never accepts client-supplied room/privileges.
     room = "explore-proof-" + uuid4().hex
     passcode = secrets.token_hex(5)
     issued = 0
+    generation = str(uuid4())
+    mutation = asyncio.Lock()
 
     @routes.get("")
     async def readiness(response: Response):
@@ -33,11 +43,38 @@ def router(settings: Settings) -> APIRouter:
             "enabled": settings.zoom_proof_enabled,
             "scope": "local-video-proof",
             "transcript_connected": False,
+            "capture": capture.view() if capture else None,
+            "generation": generation,
+            "remaining_tokens": 4 - issued,
         }
 
-    @routes.post("/join")
-    async def join(body: JoinProof, request: Request, response: Response):
+    @routes.post("/capture")
+    async def start_capture(body: Disconnect, request: Request):
+        if request.headers.get("origin") not in settings.origins:
+            raise DomainError("invalid_origin", "A local browser origin is required", 403)
+        if not settings.zoom_proof_enabled or not capture:
+            raise DomainError("zoom_disabled", "Zoom test is disabled", 409)
+        async with mutation:
+            if body.generation != generation:
+                raise DomainError("zoom_stale", "This test was disconnected. Reload.")
+            await capture.arm()
+        return capture.view()
+
+    @routes.post("/capture/stop")
+    async def stop_capture(body: Disconnect, request: Request):
+        if request.headers.get("origin") not in settings.origins:
+            raise DomainError("invalid_origin", "A local browser origin is required", 403)
+        async with mutation:
+            if body.generation != generation:
+                raise DomainError("zoom_stale", "This test was disconnected. Reload.")
+            if capture:
+                await capture.close()
+        return {"status": "stopped"}
+
+    async def issue(body: JoinProof, request: Request, response: Response):
         nonlocal issued
+        if body.generation is not None and body.generation != generation:
+            raise DomainError("zoom_stale", "This test was disconnected. Reload before joining.")
         # Host checks are also applied globally. Require explicit browser origin here.
         if request.headers.get("origin") not in settings.origins:
             raise DomainError("invalid_origin", "A local browser origin is required", 403)
@@ -50,6 +87,20 @@ def router(settings: Settings) -> APIRouter:
         if issued >= 4:
             raise DomainError("zoom_proof_limit", "Four test join tokens already issued", 429)
         now = int(time.time())
+        claims = {}
+        if body.session_id:
+            if not capture:
+                raise DomainError("zoom_unavailable", "Capture is unavailable")
+            if issued and not capture.binding:
+                raise DomainError(
+                    "zoom_bound", "Restart before binding an existing video-only test"
+                )
+            claims["session_key"] = await capture.bind(body.session_id)
+        elif capture and capture.binding:
+            raise DomainError("zoom_bound", "Open the Zoom link from the bound meeting")
+        # Binding awaits storage: concurrent joins must recheck the issuance limit.
+        if issued >= 4:
+            raise DomainError("zoom_proof_limit", "Four test join tokens already issued", 429)
         token = jwt.encode(
             {
                 "app_key": key,
@@ -59,6 +110,7 @@ def router(settings: Settings) -> APIRouter:
                 "iat": now,
                 "exp": now + 1800,
                 "user_key": str(uuid4()),
+                **claims,
             },
             secret,
             algorithm="HS256",
@@ -71,5 +123,26 @@ def router(settings: Settings) -> APIRouter:
             "sessionPasscode": passcode,
             "userName": body.name.strip(),
         }
+
+    @routes.post("/join")
+    async def join(body: JoinProof, request: Request, response: Response):
+        async with mutation:
+            return await issue(body, request, response)
+
+    @routes.post("/disconnect")
+    async def disconnect(body: Disconnect, request: Request):
+        nonlocal room, passcode, issued, generation
+        if request.headers.get("origin") not in settings.origins:
+            raise DomainError("invalid_origin", "A local browser origin is required", 403)
+        async with mutation:
+            if body.generation != generation:
+                raise DomainError("zoom_stale", "This test was already disconnected. Reload.")
+            if capture:
+                await capture.release()
+            room = "explore-proof-" + uuid4().hex
+            passcode = secrets.token_hex(5)
+            issued = 0
+            generation = str(uuid4())
+            return {"status": "disconnected", "generation": generation, "zoom_call_ended": False}
 
     return routes

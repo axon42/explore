@@ -12,10 +12,13 @@ from uuid import NAMESPACE_URL, uuid5
 from pydantic import BaseModel, Field
 
 from .analysis import PROMPT_VERSION, GeminiAnalyzer, MockAnalyzer, ProviderError
+from .analysis_errors import validation_failure
+from .analysis_preferences import AnalysisPreferences
 from .analysis_state import (
     AnalysisStrategy,
     ContextBuilder,
     TriggerPolicy,
+    reconcile,
     reduce_memory,
     validate_proposal,
 )
@@ -23,6 +26,14 @@ from .concurrency import blocking
 from .discovery import Discovery
 from .models import DomainError, TranscriptEvent
 from .overview import OverviewStrategy
+from .topics import (
+    add_topic_context,
+    advance_topic_state,
+    normalize_initial_topic,
+    question_ready,
+    resolve_topics,
+    validate_topics,
+)
 
 FIXTURE = json.loads(
     (Path(__file__).resolve().parents[1] / "fixtures/discovery-v1.json").read_text()
@@ -55,6 +66,7 @@ class Pipeline:
         self.report_workers = {}
         self.closed = False
         self.discovery = Discovery(service.storage)
+        self.preferences = AnalysisPreferences(service.storage, settings.analysis_strategy)
 
     def lock(self, sid):
         return self.locks.setdefault(sid, asyncio.Lock())
@@ -86,7 +98,9 @@ class Pipeline:
     async def view(self, sid):
         async with self.lock(sid):
             state = copy.deepcopy(await self.state(sid))
+            preferences = await self.service.read(self.preferences.get)
             state.update(
+                strategy=preferences["strategy"],
                 provider=self.settings.analysis_provider,
                 model="simulated"
                 if self.settings.analysis_provider == "mock"
@@ -204,10 +218,17 @@ class Pipeline:
         wake = self.wakes[sid]
         while True:
             await wake.wait()
-            await self.trigger.collect(wake)
-            await self.process_batch(sid)
+            snapshot = await self.service.read(self.service.storage.snapshot, sid)
+            preferences = await self.service.read(self.preferences.get)
+            audio = preferences["strategy"] == "topics" or any(
+                s["segment_id"].startswith("audio-") for s in snapshot["segments"]
+            )
+            settled = await (
+                TriggerPolicy(idle_seconds=4, max_wait_seconds=25) if audio else self.trigger
+            ).collect(wake)
+            await self.process_batch(sid, allow_questions=settled)
 
-    async def process_batch(self, sid, closing=False):
+    async def process_batch(self, sid, closing=False, allow_questions=True):
         started = time.monotonic()
         async with self.lock(sid):
             state = await self.state(sid)
@@ -215,14 +236,50 @@ class Pipeline:
             if snapshot["session"]["status"] != "live" and not closing:
                 return False
             meeting_context = await self.service.read(self.discovery.context, sid)
-            memory = await self.service.read(self.discovery.memory, sid)
+            memory = reconcile(await self.service.read(self.discovery.memory, sid), snapshot)
             context = self.context_builder.build(
                 snapshot, meeting_context, memory, state["objective"]
             )
             if context is None or not context["segments"]:
                 return False
+            # Freeze the choice for this invocation, including validation and commit after I/O.
+            preferences = await self.service.read(self.preferences.get)
+            topic_mode = preferences["strategy"] == "topics"
+            if not closing and (
+                topic_mode or any(s["segment_id"].startswith("audio-") for s in context["segments"])
+            ):
+                # Keep fragments pending until there is enough speech for useful reasoning.
+                if (not topic_mode or not memory["coverage"]) and sum(
+                    len(s["text"].split()) for s in context["segments"]
+                ) < 35:
+                    state.update(analysis_status="listening", error="")
+                    await self.save(sid)
+                    return False
+            context["question_allowed"] = (
+                allow_questions
+                and not closing
+                and await self.service.read(self.discovery.question_allowed, sid)
+            )
+            if topic_mode:
+                catalog = await self.service.read(
+                    self.discovery.topic_catalog, sid, context, memory
+                )
+                try:
+                    context = add_topic_context(context, memory, catalog)
+                except ValueError:
+                    state.update(
+                        analysis_status="limited",
+                        error=(
+                            "Topic context exceeds its budget. "
+                            "Reduce the brief or included notes before retrying."
+                        ),
+                    )
+                    await self.save(sid)
+                    return False
             context["session_id"] = sid
             context["meeting_id"] = snapshot["session"]["meeting_id"]
+            context["analysis_mode"] = preferences["strategy"]
+            context["analysis_settings_revision"] = preferences["revision"]
             context["job_id"] = str(uuid5(NAMESPACE_URL, json.dumps(context, sort_keys=True)))
             if state["calls"] >= self.settings.analysis_max_calls:
                 state.update(
@@ -243,12 +300,21 @@ class Pipeline:
             state.update(analysis_status="analyzing", result=None, error="")
             state["calls"] += 1
             await self.save(sid)
+        validation_code = ""
+        usage = {}
         try:
             result, usage = await asyncio.wait_for(
                 self.strategy.analyze(self.provider, context),
                 self.settings.analysis_timeout_seconds,
             )
             validate_proposal(result, context)
+            if topic_mode:
+                result = normalize_initial_topic(result, context)
+                validate_topics(result, context)
+                ready = question_ready(result, context)
+                result = resolve_topics(result, context)
+                if not ready:
+                    result = result.model_copy(update={"question": "", "source_ids": []})
             error = ""
         except asyncio.CancelledError:
             raise
@@ -260,9 +326,19 @@ class Pipeline:
             error = (
                 f"Analysis exceeded the {self.settings.analysis_timeout_seconds}-second deadline."
             )
-        except ValueError:
-            result, usage = None, {}
-            error = "Analysis output contains invalid evidence or question references."
+        except ValueError as exc:
+            result = None
+            validation_code, error = validation_failure(exc)
+            logging.getLogger("meeting").warning(
+                json.dumps(
+                    {
+                        "event": "analysis_rejected",
+                        "session_id": sid,
+                        "job_id": context["job_id"],
+                        "code": validation_code,
+                    }
+                )
+            )
         except Exception:
             result, usage = None, {}
             error = "Analysis failed. Check configuration or quota; retry or deliver another turn."
@@ -281,12 +357,16 @@ class Pipeline:
                 updated = None
                 if not stale and not error:
                     updated = reduce_memory(memory, current, context, result)
+                    if topic_mode:
+                        updated = advance_topic_state(updated, context, result)
                     updated["overview"] = self.overview_strategy.build(updated, result.summary)
                     pending = any(
                         s["is_final"] and updated["coverage"].get(s["segment_id"]) != s["revision"]
                         for s in current["segments"]
                     )
-                    if pending or closing:
+                    speaking = any(not s["is_final"] for s in current["segments"])
+                    allowed = await blocking(self.discovery.question_allowed, sid)
+                    if pending or closing or speaking or not allowed or not allow_questions:
                         # New speech may already cover the proposed question. Reconsider
                         # with the next batch; retain useful state rather than starving it.
                         result = result.model_copy(update={"question": "", "source_ids": []})
@@ -307,6 +387,7 @@ class Pipeline:
                     "usage": usage,
                     "stale": stale,
                     "error": error,
+                    "validation_code": validation_code,
                     "suggestion": result.model_dump() if result else None,
                 }
                 state["runs"].append(run)

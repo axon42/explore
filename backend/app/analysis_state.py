@@ -14,6 +14,7 @@ class Contract(BaseModel):
 
 class Claim(Contract):
     key: str = Field(min_length=1, max_length=100)
+    topic_id: str = Field(default="", max_length=100)
     section: Literal["workflows", "pain_impact", "alternatives", "opportunities", "next_steps"]
     text: str = Field(min_length=1, max_length=1000)
     basis: Literal["observed", "inferred"]
@@ -33,6 +34,7 @@ class WorkflowStep(Contract):
 
 class Workflow(Contract):
     key: str = Field(min_length=1, max_length=100)
+    topic_id: str = Field(default="", max_length=100)
     title: str = Field(min_length=1, max_length=150)
     steps: list[WorkflowStep] = Field(min_length=2, max_length=12)
     # Every transition has its own supporting passage; an empty list means unknown order.
@@ -59,11 +61,11 @@ class TriggerPolicy:
             wake.clear()
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                return
+                return False
             try:
                 await asyncio.wait_for(wake.wait(), min(self.idle_seconds, remaining))
             except TimeoutError:
-                return
+                return remaining >= self.idle_seconds
 
 
 def empty_memory():
@@ -89,6 +91,9 @@ def reconcile(memory, snapshot):
             for item in memory[field]
             if all(current.get(k) == v for k, v in item["sources"].items())
         ]
+    state = memory.get("topic_state")
+    if state and any(current.get(k) != v for k, v in state.get("sources", {}).items()):
+        state.update(focus_id="", action="uncertain", readiness="uncertain", sources={})
     return memory
 
 
@@ -102,7 +107,7 @@ class ContextBuilder:
         # Never truncate an unprocessed segment. The event contract bounds one at 20K chars.
         selected, size = [], 0
         for s in pending:
-            if selected and (size + len(s["text"]) > 24000 or len(selected) >= 12):
+            if selected and (size + len(s["text"]) > 24000 or len(selected) >= 60):
                 break
             selected.append(s)
             size += len(s["text"])
@@ -172,7 +177,10 @@ def reduce_memory(memory, snapshot, context, result):
     memory = reconcile(memory, snapshot)
     refs = {s["segment_id"]: s["revision"] for s in context["segments"]}
     for field in ("claims", "matches", "workflows"):
-        items = {item.get("key", item.get("question_id")): item for item in memory[field]}
+        items = {
+            (item.get("topic_id", ""), item.get("key", item.get("question_id"))): item
+            for item in memory[field]
+        }
         for proposal in getattr(result, field):
             item = proposal.model_dump()
             ids = item.get("source_ids", [])
@@ -180,7 +188,7 @@ def reduce_memory(memory, snapshot, context, result):
                 ids = [s for step in item["steps"] for s in step["source_ids"]]
                 ids += [s for transition in item["transitions"] for s in transition]
             item["sources"] = {s: refs[s] for s in ids}
-            items[item.get("key", item.get("question_id"))] = item
+            items[(item.get("topic_id", ""), item.get("key", item.get("question_id")))] = item
         memory[field] = list(items.values())
     memory["coverage"].update({k: refs[k] for k in context["new_source_ids"]})
     memory.update(

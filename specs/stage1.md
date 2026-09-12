@@ -22,3 +22,8 @@ workflows export editable Mermaid diagrams. Repository default remains mock; the
 See [analysis APIs](../docs/analysis.md), [analysis design](../design/live-analysis.md) and
 [report design](../design/meeting-reports.md). Report/participant/export controls and generated-note viewing are connected in the browser.
 Structured human-note editing and further real-model evaluation remain separate work.
+
+Optional [topic memory](../design/topic-memory.md) now supports session-local topic routing,
+evidence associations, question readiness and report groupings. It is selectable from the bottom-left Analysis mode control and remains opt-in pending Gemini semantic evaluation. The browser displays evolving discussion
+threads below the transcript and saved report revisions with grouped notes, question-status charts
+and evidence-linked workflow diagrams. [Market scans](../design/market-scan.md) are future work.

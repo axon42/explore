@@ -1,81 +1,23 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="referrer" content="no-referrer">
-  <title>Explore · Zoom connection test</title>
-  <style>
-    body{margin:0;background:#f6f7f9;color:#17191c;font:16px system-ui,sans-serif}main{max-width:850px;margin:48px auto;padding:28px;background:white;border:1px solid #dce0e5;border-radius:12px}h1{font-size:25px}p{line-height:1.6}label{display:block;margin:20px 0 8px}input,button{font:inherit;padding:12px;border:1px solid #aeb5bf;border-radius:7px}button{background:#17191c;color:white;cursor:pointer}button:disabled{opacity:.5;cursor:default}a{color:#285ba6}#status{min-height:24px}#session{min-height:100px}.brand{display:flex;gap:10px;align-items:center}svg{width:24px;height:24px}
-  </style>
-</head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="referrer" content="no-referrer"><title>Explore · Zoom test</title><link rel="stylesheet" href="/zoom-proof.css"></head>
 <body>
+<header class="topbar"><a class="brand" href="/"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3"/></svg>Explore</a><a href="/">Back to meeting <span aria-hidden="true">↗</span></a></header>
 <main>
-  <div class="brand"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3"/></svg><strong>Explore</strong></div>
-  <h1>Zoom connection test</h1>
-  <p>Local account proof. Joining uses Zoom credits. Transcription and Explore analysis are not connected on this test page.</p>
-  <p>Start with two tabs on this computer. The first join is host. End the session for everyone after a short test; closing a tab or token expiry does not guarantee billing stops.</p>
-  <form id="join"><label for="name">Your test name</label><input id="name" required maxlength="60" autocomplete="off" value="Interviewer"><button id="start" disabled>Start Zoom preview</button></form>
-  <p id="status" role="status">Checking configuration…</p>
-  <p><a href="/">Return to Explore</a></p>
-</main>
-<div id="session"></div>
-<script type="module">
-const status = document.querySelector('#status');
-const start = document.querySelector('#start');
-const container = document.querySelector('#session');
-async function loadToolkit() {
-  if (window.UIToolkit) return window.UIToolkit;
-  await new Promise((resolve, reject) => {
-    const script = document.createElement('script');
-    script.src = 'https://source.zoom.us/uitoolkit/2.5.0-1/videosdk-ui-toolkit.min.umd.js';
-    script.onload = resolve;
-    script.onerror = () => { script.remove(); reject(new Error('toolkit_load')); };
-    document.head.append(script);
-  });
-  if (typeof window.UIToolkit?.joinSession !== 'function') throw new Error('toolkit_load');
-  return window.UIToolkit;
-}
-async function request(path, options) {
-  const response = await fetch('/api/integrations/zoom/proof' + path, options);
-  const body = await response.json();
-  if (!response.ok) throw new Error(body.message || 'Connection request failed');
-  return body;
-}
-try {
-  const state = await request('');
-  start.disabled = !state.configured || !state.enabled;
-  status.textContent = !state.configured ? 'Add ZOOM_VIDEO_SDK_KEY and ZOOM_VIDEO_SDK_SECRET to .env, then restart.' : !state.enabled ? 'Credentials present. Set ZOOM_PROOF_ENABLED=true and restart when ready to use trial credits.' : 'Ready for a short account test.';
-} catch { status.textContent = 'Backend unavailable. Start Explore and reload.'; }
-document.querySelector('#join').addEventListener('submit', async event => {
-  event.preventDefault(); start.disabled = true;
-  status.textContent = 'Loading Zoom preview…';
-  let stage = 'toolkit';
-  try {
-    // Standalone official bundle avoids its React 18 peer dependency in Explore's React 19 app.
-    const css = document.createElement('link'); css.rel = 'stylesheet';
-    css.href = 'https://source.zoom.us/uitoolkit/2.5.0-1/videosdk-ui-toolkit.css'; document.head.append(css);
-    const toolkit = await loadToolkit();
-    stage = 'token';
-    const config = await request('/join', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:document.querySelector('#name').value})});
-    stage = 'preview';
-    config.featuresOptions = {
-      preview:{enable:true},video:{enable:true},audio:{enable:true},users:{enable:true},settings:{enable:true},leave:{enable:true},
-      recording:{enable:false},phone:{enable:false},share:{enable:false},chat:{enable:false},caption:{enable:false},invite:{enable:false}
-    };
-    toolkit.joinSession(container, config);
-    toolkit.onSessionJoined(() => { status.textContent = 'Connected. Use the host End control when finished.'; });
-    toolkit.onSessionClosed(() => { status.textContent = 'You left the session. Confirm the host ended it for everyone.'; });
-    toolkit.onSessionDestroyed(() => { toolkit.destroy(); });
-    status.textContent = 'Complete the Zoom device preview to join.';
-  } catch {
-    status.textContent = stage === 'toolkit'
-      ? 'Zoom toolkit could not load. Check network access to source.zoom.us and retry. No join token was issued.'
-      : stage === 'token'
-      ? 'Explore could not issue a join token. Check backend configuration or the four-token test limit.'
-      : 'Zoom preview could not initialize. Reload to retry; contact the developer if it persists.';
-    if (stage === 'toolkit') start.disabled = false;
-  }
-});
-</script>
-</body>
-</html>
+<div class="heading"><div><p class="eyebrow">INTEGRATION LAB</p><h1>Zoom connection test</h1><p class="muted">Connect your call, start transcription, and follow the conversation in Explore.</p></div><span class="badge" id="connection">Not connected</span></div>
+<div class="layout"><section class="card controls" aria-label="Connection controls">
+<div class="section-heading"><span class="step">1</span><h2>Join the call</h2></div>
+<form id="join"><label for="name">Your name</label><input id="name" required maxlength="60" autocomplete="name" value="Interviewer"><button id="start" disabled>Start Zoom preview</button></form>
+<p id="status" role="status">Checking configuration…</p><a id="bound-session" hidden>Open the active Zoom test</a>
+<div class="divider"></div><div class="section-heading"><span class="step">2</span><h2>Live transcript</h2></div>
+<p id="capture-status" role="status" hidden></p><p id="capture-reason" class="muted"></p>
+<button id="capture" hidden disabled>Start transcription (2 minutes)</button><button id="stop-capture" class="secondary" hidden>Stop transcription</button>
+<div class="divider"></div><div class="section-heading"><span class="step">3</span><h2>End the test</h2></div>
+<button id="end-session" class="danger" disabled>End Zoom for everyone</button><button id="kill" class="secondary" type="button" disabled>Disconnect test</button>
+<p class="hint">Disconnect clears Explore’s pending connection. End Zoom for everyone to stop the call.</p>
+</section>
+<div class="workspace"><section class="card session-card" aria-labelledby="active-title"><div class="section-heading"><h2 id="active-title">Session activity</h2><span id="role" class="badge">Not joined</span></div><p id="room" class="room">No session joined in this tab</p><p id="participants" class="muted">Join to see participants and microphone status.</p><ul id="active-tabs" aria-label="Connected test tabs"></ul><p class="hint">Shows test tabs in this browser. Calls in other browsers or closed tabs cannot be verified here.</p></section>
+<section class="card video-card" aria-label="Zoom call"><div id="placeholder"><span class="video-icon" aria-hidden="true">◎</span><h2>Your call appears here</h2><p>Start the preview, allow microphone access,<br>then join. Camera is optional.</p></div><iframe id="session" title="Zoom devices and call" allow="camera; microphone; autoplay; fullscreen; display-capture" hidden></iframe></section>
+</div></div>
+<p class="footnote">Short test · Zoom credits apply · Participants must agree to transcription and AI processing.</p>
+</main><script type="module" src="/zoom-proof.js"></script></body></html>

@@ -7,6 +7,10 @@
 - Optimistic revisions prevent silent overwrites from another tab. Reset stops work before transactional deletion; a fresh session ID rejects old producer traffic.
 
 ## Interface
+- Immediate live source: [macOS microphone + system audio](macos-audio-capture.md), with a
+  replaceable source/provider boundary feeding the existing transcript pipeline.
+- Target live-call experience: [Zoom desktop + Explore](zoom-meetings.md). Regular Meetings RTMS
+  eligibility must be verified before replacing the existing Video SDK proof.
 - Light theme with conventional sidebar, meeting tabs, forms and confirmation dialogs. The app is **Explore**. See [UI decisions](ui.md).
 - Interview: transcript, retained questions, status controls, replay and injection.
 - Overview: source-linked workflows (blue), gaps (amber), automation hypotheses (purple). Labels accompany color.
@@ -29,8 +33,23 @@ downloads. Further real Gemini quality evaluation remains separate work.
 [Implementation/API reference](../docs/analysis.md) · [Coding agent rules](../AGENTS.md)
 
 ## Follow-up after Gemini connection verification
+Track [debugging and error logging](observability.md) as a dedicated follow-up.
 See the proposed [interview-ready release plan](interview-ready-release.md) for light UI, report downloads,
 microphone testing, private hosting and Zoom ingestion. The light theme is implemented; the remaining release work is planned.
 
 - Group overview gaps and automation hypotheses under their related workflows, with explicit
   relationships in the analysis data instead of relying on adjacent cards or color alone.
+
+## Meeting organization and pacing
+Meeting archiving is reversible organization, not deletion or capture control: stop the
+meeting before archiving. The sidebar switches between active and archived lists. Question
+frequency and discard controls are per meeting and preserve the evidence ledger. See
+[live pacing](live-analysis.md#live-pacing-refinement--2026-09-12).
+
+## Topic memory (opt-in)
+[Topic memory](topic-memory.md) extends session-local analysis with resumable subjects and
+evidence-backed associations using the existing provider workflow and SQLite. This is a
+runtime option selected through the bottom-left Analysis mode control, with migration 4
+for topic data and migration 5 for the app-wide preference.
+The default remains `legacy` until real-provider evaluation. The browser now exposes thread
+context and formatted report revisions; no agent framework was added. See [UI decisions](ui.md).

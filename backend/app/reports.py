@@ -9,6 +9,7 @@ from .analysis_state import empty_memory, reconcile
 from .discovery import Discovery, require
 from .models import DomainError
 from .storage import now
+from .topic_storage import read_topics
 
 SECTIONS = (
     ("people", "People and meeting"),
@@ -57,17 +58,37 @@ class ReportStrategy:
         sections["summary"] = memory["claims"][:8]
         sections["questions"] = source["questions"]
         sections["evidence_notes"] = source["notes"]
+        topics = source.get("topics", [])
+        topic_titles = {t["id"]: t["title"] for t in topics}
         return {
-            "schema_version": 1,
+            "schema_version": 2 if topics else 1,
+            "topics": topics,
             "meeting": source["meeting"],
             "session": source["session"],
             "duration_ms": max((s["end_ms"] for s in source["segments"]), default=0),
             "provider": provider,
             "simulated": provider == "mock",
-            "strategy_version": "evidence-report-v1",
+            "strategy_version": "evidence-report-v2" if topics else "evidence-report-v1",
             "generated_at": now(),
             "sections": [
-                {"key": k, "title": title, "items": sections[k], "empty_text": "Not established"}
+                {
+                    "key": k,
+                    "title": title,
+                    "items": sections[k],
+                    "empty_text": "Not established",
+                    "topic_groups": [
+                        {
+                            "topic_id": tid,
+                            "title": topic_titles.get(tid, "Unassigned"),
+                            "items": [
+                                item for item in sections[k] if item.get("topic_id", "") == tid
+                            ],
+                        }
+                        for tid in dict.fromkeys(item.get("topic_id", "") for item in sections[k])
+                    ]
+                    if topics
+                    else [],
+                }
                 for k, title in SECTIONS
             ],
             "workflows": [{**w, "mermaid": diagram(w)} for w in memory["workflows"]],
@@ -154,13 +175,20 @@ class Reports:
         questions = [
             dict(r)
             for r in db.execute(
-                "SELECT id,text,status,revision FROM questions WHERE session_id=? "
+                "SELECT id,text,CASE WHEN discarded=1 THEN 'discarded' ELSE "
+                "status END AS status,revision FROM questions WHERE session_id=? "
                 "ORDER BY created_at,id",
                 (sid,),
             )
         ]
         for question in questions:
             question["evidence"] = Discovery.evidence(db, "question", question["id"])
+            link = db.execute(
+                "SELECT topic_id,intent FROM question_topics WHERE question_id=? AND session_id=?",
+                (question["id"], sid),
+            ).fetchone()
+            if link:
+                question.update(dict(link))
         return {
             "schema_version": 1,
             "exported_at": now(),
@@ -168,6 +196,7 @@ class Reports:
             "session": session,
             "segments": segments,
             "memory": memory,
+            "topics": read_topics(db, sid, segments, memory.get("topic_state", {})),
             "participants": participants,
             "brief": brief,
             "notes": [
@@ -232,6 +261,7 @@ class Reports:
                 "provider": provider,
                 "simulated": provider == "mock",
                 "state": source["memory"],
+                "topics": source["topics"],
                 "notes": self.strategy.build(source, "derived")["sections"],
             }
 
@@ -370,7 +400,22 @@ def report_markdown(report):
 
     for section in report["sections"]:
         lines.extend(["", f"## {section['title']}", ""])
-        for item in section["items"]:
+        topic_labels = {t["id"]: t["title"] for t in report.get("topics", [])}
+        items = (
+            sorted(section["items"], key=lambda item: item.get("topic_id", ""))
+            if topic_labels
+            else section["items"]
+        )
+        previous_topic = None
+        for item in items:
+            tid = item.get("topic_id", "")
+            if (
+                topic_labels
+                and section["key"] not in ("people", "purpose", "evidence_notes")
+                and tid != previous_topic
+            ):
+                lines.append(f"### {safe_text(topic_labels.get(tid, 'Unassigned'))}")
+                previous_topic = tid
             if section["key"] == "people":
                 lines.append(
                     f"- {safe_text(item.get('name') or 'Not established')} — "
@@ -393,6 +438,21 @@ def report_markdown(report):
                 )
         if not section["items"]:
             lines.append("Not established")
+    if report.get("topics"):
+        lines.extend(["", "## Discussion topics", ""])
+        for topic in report["topics"]:
+            label = (
+                "Evidence revised; topic needs review"
+                if topic["needs_review"]
+                else topic["summary"]
+            )
+            if topic.get("provisional"):
+                label = "Provisional topic assignment: " + label
+            refs = {} if topic["needs_review"] else topic["summary_sources"]
+            lines.append(
+                f"- {safe_text(topic['title'])} ({topic['status']}): "
+                f"{safe_text(label)} ({citations(refs)})"
+            )
     for match in report["question_matches"]:
         lines.append(
             f"- Suggested {match['status']} for question "

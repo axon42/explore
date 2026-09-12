@@ -4,6 +4,10 @@ Browser React workspace backed by FastAPI and SQLite. The [pipeline guide](pipel
 
 ## Setup and run
 
+User testing preference: **Firefox**, using **http://127.0.0.1:5173** consistently.
+Keep this port and hostname stable across restarts; browser permissions and storage are origin-specific.
+Disposable automated test servers may use separate ports; do not redirect the user's testing workflow.
+
 Prerequisites: **Node.js 22.12+** (Node 22 is selected by `.nvmrc`), **Python 3.12+**, and **uv**. Use npm for frontend dependencies. Install uv using [its official installation instructions](https://docs.astral.sh/uv/getting-started/installation/).
 
 From this repository:
@@ -19,6 +23,8 @@ bash scripts/dev.sh
 After initial setup, **`uv run --project backend python scripts/dev.py`** starts both servers on Windows, macOS or Linux (`bash scripts/dev.sh` also works on POSIX systems). Open **http://127.0.0.1:5173**. Choose **New session**, optionally enter a title, then **Create workspace → New meeting → Play → Stop**. Ctrl-C stops both processes cleanly. Vite supports frontend hot reload; restart the command after backend/configuration changes.
 
 This is a **localhost development app**. Both servers bind to `127.0.0.1`; do not expose them publicly or use tunnels. Use exactly one backend process/worker. No Docker or external services are needed.
+
+Optional Mac capture: [setup](macos-capture.md) and [design](../design/macos-audio-capture.md).
 
 ## Configuration
 

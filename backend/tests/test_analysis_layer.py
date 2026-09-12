@@ -315,7 +315,7 @@ def test_migration_v2_preserves_source_and_is_idempotent(tmp_path):
     with storage.connection() as db:
         assert [
             r[0] for r in db.execute("SELECT version FROM schema_migrations ORDER BY version")
-        ] == [1, 2]
+        ] == [1, 2, 3, 4, 5]
         assert not db.execute("PRAGMA foreign_key_check").fetchall()
 
 
@@ -419,5 +419,5 @@ async def test_trigger_coalesces_but_does_not_wait_forever():
     for _ in range(8):
         await asyncio.sleep(0.025)
         wake.set()
-    await asyncio.wait_for(task, 0.2)
+    assert not await asyncio.wait_for(task, 0.2)
     assert 0.14 <= time.monotonic() - started < 0.5

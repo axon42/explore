@@ -10,9 +10,11 @@ the backend (normally `http://127.0.0.1:8000/docs`).
 ## Processing
 
 1. Save each accepted transcript revision. Interim text is displayed but not analyzed.
-2. `TriggerPolicy` waits for one second without another notification, up to five seconds per
-   collection window. One worker handles each session; notifications coalesce while it runs.
-3. `ContextBuilder` selects up to 12 unprocessed final segments / 24,000 characters, plus up to
+2. Replay/injection collection waits for one second without another notification, up to five
+   seconds. Native audio uses four seconds / 25 seconds and a 35-word context threshold;
+   finalization bypasses the threshold. A maximum-window flush updates memory without a question.
+   One worker handles each session; notifications coalesce while it runs.
+3. `ContextBuilder` selects up to 60 unprocessed final segments / 24,000 characters, plus up to
    4,000 characters of previously processed dialogue (at most ten segments). A single unprocessed
    segment is never truncated. Corrections invalidate dependent memory before context construction.
 4. Send brief, latest ten human notes, latest thirty questions, participant mappings and up to forty
@@ -83,7 +85,7 @@ labels and unknown roles. Existing human-note records retain their original bodi
 Exports escape untrusted Markdown/HTML. Workflow data has bounded, evidence-linked nodes/transitions;
 Mermaid is generated with fixed node IDs and encoded labels. Unknown ordering uses a labeled dashed
 edge. Markdown includes textual steps for readers without Mermaid support. No diagram renderer or
-new frontend library has been installed; a future UI renderer must use strict security settings.
+new frontend library is needed: the report reader renders validated step lists as native HTML and CSS, without executing Mermaid or model HTML.
 
 ## Limits and validation
 
@@ -104,3 +106,56 @@ memory entries. Strict local validation and the 4,096-token output ceiling remai
 no automatic retries. After deploying an adapter change, restart the backend. A live session retries
 unprocessed evidence when another turn arrives; a stopped session retries via Generate report.
 Refreshing the UI only reloads state and does not retry analysis.
+
+## Topic memory (opt-in)
+Choose **Discussion threads** in **Analysis mode** at the bottom left. Choose **Standard**
+to return to legacy analysis. The setting applies across the local app, persists in SQLite and
+takes effect on subsequent batches without a restart. Use a fresh synthetic meeting for
+evaluation; switching does not delete topics or original evidence. Provider selection remains independent:
+`ANALYSIS_PROVIDER=mock` makes no external calls; `gemini` uses the existing server-side key.
+Switching strategy never automatically rebuilds historical meetings.
+
+Topic mode adds routing, readiness, scoped artifact keys and exact-intent dedupe to the same
+provider call. The checkpoint includes `topic_state`; `GET /meetings/{mid}/analysis` returns
+`topics` and notes with `topic_groups`. The Interview tab polls this endpoint every 2.5 seconds while mounted and displays a session-filtered thread panel beneath the transcript. Active focus follows updates unless the viewer selects a thread; source links require exact current revisions.
+Reports containing topics use version 2, preserve section order, and include active and paused
+subjects. Full transcript exports still retain every accepted revision.
+
+The context index is capped at 40 topics, details at three, added exact evidence at 8K characters,
+and the shared serialized context at 64K characters (with metadata reserve). Derived memory and
+older notes may be omitted with counts; new segments are never truncated. Context that still
+exceeds the cap fails before a provider call. Index-only resumes wait for a later eligible batch
+with hydrated detail before questions can be published. Topics with more than 30 associated
+questions suppress new questions until a future history-retrieval policy is implemented.
+
+Opening fragments wait for 35 words; processed sessions accept short corrections. All sources
+use four-second quiet / 25-second maximum batching in topic mode; maximum flushes update memory
+only. Model readiness and existing pending-speech/cooldown checks govern publication.
+
+Run the offline comparison from `backend`: `.venv/bin/python -m app.topic_eval`.
+It uses temporary storage, no keys, and no provider network calls. See the
+[evaluation baseline](topic-memory-evaluation.md) and [design](../design/topic-memory.md).
+A separately budgeted, synthetic Gemini evaluation remains necessary before interview rollout.
+
+
+## Analysis-mode setting
+`GET /settings/analysis` returns `{strategy, revision}`. `PATCH /settings/analysis` accepts
+`strategy: legacy | topics` and the current integer revision; stale writes return 409.
+The sidebar polls every three seconds, rejects older GET responses and displays save failures.
+This is an app-wide preference, independent of workspace/meeting selection, provider keys,
+call caps and data reset. Local host/origin protections apply to both endpoints.
+
+Each analysis invocation captures its mode and preference revision before calling the provider,
+then validates and commits under that same contract. An in-flight batch finishes normally;
+changing the mode neither starts another call nor rebuilds history. A collection window already
+waiting may finish under its previous timing policy; the next invocation uses the saved mode.
+`ANALYSIS_STRATEGY` is only an initial fallback before the first UI save. Once saved, the database
+choice takes precedence across server restarts. Analysis inputs record both mode and revision.
+
+
+Validation errors carry a safe diagnostic code, also saved as `validation_code` on the run.
+Examples include `topic_focus_changed`, `topic_routing_evidence`, and `question_intent_missing`.
+The transcript checkpoint never advances on rejection. First-topic `continue` is canonicalized
+only for an accepted new focus in an empty topic index; evidence validation remains strict.
+Existing failed batches remain pending: new dialogue retries live analysis; for a stopped
+meeting, **Report → Generate report** drains pending analysis within the existing call cap.
