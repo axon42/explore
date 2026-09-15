@@ -15,6 +15,7 @@ from app.main import create_app
 from app.models import DomainError
 from app.service import Service
 from app.storage import Storage
+from tests.prepared import session
 
 
 def result(text="Synthetic speech", final=True, start=0):
@@ -155,7 +156,7 @@ async def wait_until(check):
 
 async def test_capture_stops_and_flushes_before_session_finalization(setup):
     capture, service, sources, streams = setup
-    sid = service.storage.create("Synthetic")["id"]
+    sid = session(service.storage, "Synthetic")["id"]
     await capture.start(sid)
     await wait_until(lambda: capture.state["status"] == "capturing")
     await sources[0].frames.put(AudioFrame("microphone", 0, bytes(3200)))
@@ -173,8 +174,8 @@ async def test_capture_stops_and_flushes_before_session_finalization(setup):
 
 async def test_concurrent_start_wrong_session_stop_and_stale_capture(setup):
     capture, service, _, _ = setup
-    one = service.storage.create("One")["id"]
-    two = service.storage.create("Two")["id"]
+    one = session(service.storage, "One")["id"]
+    two = session(service.storage, "Two")["id"]
     outcomes = await asyncio.gather(capture.start(one), capture.start(two), return_exceptions=True)
     assert sum(isinstance(item, DomainError) for item in outcomes) == 1
     sid, identity = capture.state["sid"], capture.state["id"]
@@ -189,7 +190,7 @@ async def test_concurrent_start_wrong_session_stop_and_stale_capture(setup):
 
 async def test_provider_failure_is_safe_and_releases_source(setup):
     capture, service, sources, streams = setup
-    sid = service.storage.create("Synthetic")["id"]
+    sid = session(service.storage, "Synthetic")["id"]
     await capture.start(sid)
     await wait_until(lambda: capture.state["status"] == "capturing")
     await streams[0].messages.put({"type": "Error", "description": "SECRET BODY"})
@@ -203,11 +204,57 @@ async def test_time_limit_stops_without_another_user_action(setup):
     capture, service, sources, streams = setup
     # Shorten only this synthetic in-memory test; real settings validate >=30 seconds.
     capture.settings.audio_capture_max_seconds = 1
-    sid = service.storage.create("Synthetic")["id"]
+    sid = session(service.storage, "Synthetic")["id"]
     await capture.start(sid)
     await asyncio.wait_for(capture.task, 3)
     assert capture.state["status"] == "stopped"
     assert sources[0].closed and all(s.closed for s in streams)
+
+
+async def test_manual_capture_has_no_deadline_and_still_flushes_on_stop(setup, monkeypatch):
+    from types import SimpleNamespace
+
+    import app.audio.capture as capture_module
+
+    capture, service, sources, streams = setup
+    assert capture.settings.audio_capture_max_seconds == 0
+    clock = [100.0]
+    monkeypatch.setattr(capture_module, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    original_wait = asyncio.wait
+    deadlines = []
+
+    async def observe_wait(*args, **kwargs):
+        deadlines.append(kwargs.get("timeout"))
+        return await original_wait(*args, **kwargs)
+
+    monkeypatch.setattr(capture_module.asyncio, "wait", observe_wait)
+    sid = session(service.storage, "Manual capture")["id"]
+    await capture.start(sid)
+    await wait_until(lambda: capture.state["status"] == "capturing")
+    clock[0] += 125
+    await sources[0].frames.put(AudioFrame("microphone", 0, bytes(3200), 1600))
+    await streams[0].messages.put(result("Still speaking", start=124))
+    await wait_until(lambda: capture.state["frames"] == 1 and capture.state["segments"] == 1)
+    assert capture.state["elapsed_seconds"] == 125
+    assert deadlines[0] is None and not capture.task.done()
+    await capture.finish_session(sid)
+    assert capture.state["status"] == "stopped"
+    assert sources[0].closed and all(s.closed for s in streams)
+    assert len(service.storage.snapshot(sid)["segments"]) == 3
+
+
+def test_optional_cutoff_and_long_capture_timestamps():
+    from pydantic import ValidationError
+
+    assert Settings(_env_file=None, audio_capture_max_seconds=0).audio_capture_max_seconds == 0
+    assert Settings(_env_file=None, audio_capture_max_seconds=120).audio_capture_max_seconds == 120
+    for invalid in (-1, 1, 29, 601):
+        with pytest.raises(ValidationError):
+            Settings(_env_file=None, audio_capture_max_seconds=invalid)
+    normalizer = DeepgramNormalizer("long-capture", "microphone", 5000)
+    assert normalizer.event(result(start=7200)).start_ms == 7205000
+    with pytest.raises(AudioError, match="transcription_invalid"):
+        normalizer.event(result(start=9007199254740991))
 
 
 def test_routes_require_local_origin_consent_and_hide_key(tmp_path):
@@ -215,7 +262,9 @@ def test_routes_require_local_origin_consent_and_hide_key(tmp_path):
     with TestClient(app) as client:
         state = client.get("/audio-capture")
         assert "not-public" not in state.text
-        sid = client.post("/sessions", json={}).json()["id"]
+        from tests.test_api import create
+
+        sid = create(client)
         path = f"/sessions/{sid}/audio-capture"
         assert client.post(path, json={"consent": True}).status_code == 403
         assert (
@@ -258,7 +307,7 @@ async def test_stop_during_startup_closes_helper_without_provider_calls(setup):
 
     source.start = start
     capture.source_factory = lambda: source
-    sid = service.storage.create("Synthetic")["id"]
+    sid = session(service.storage, "Synthetic")["id"]
     await capture.start(sid)
     await started.wait()
     await asyncio.wait_for(capture.stop(sid), 1)
@@ -268,7 +317,7 @@ async def test_stop_during_startup_closes_helper_without_provider_calls(setup):
 
 async def test_native_menu_stop_flushes_final_speech(setup):
     capture, service, sources, _ = setup
-    sid = service.storage.create("Synthetic")["id"]
+    sid = session(service.storage, "Synthetic")["id"]
     await capture.start(sid)
     await wait_until(lambda: capture.state["status"] == "capturing")
 
@@ -320,3 +369,83 @@ def test_macos_launch_uses_app_identity_not_backend_subprocess(tmp_path):
     args = MacOSSource(executable).launch_arguments(tmp_path / "capture.sock")
     assert args[:4] == ["/usr/bin/open", "-n", "-W", str(tmp_path / "Capture.app")]
     assert "--socket" in args
+
+
+def test_capture_health_detects_padding_but_allows_silence():
+    from app.audio.health import check_health
+
+    mic = {"last_frame_seconds": 29, "last_input_seconds": 3, "input_observable": True}
+    with pytest.raises(AudioError, match="audio_input_stalled"):
+        check_health({"microphone": mic}, 30, 30)
+    mic["last_input_seconds"] = 29
+    # Zero amplitude still has real samples. An ordinary pause must not stop capture.
+    check_health({"microphone": mic}, 30, 30)
+    mic["last_frame_seconds"] = 3
+    with pytest.raises(AudioError, match="audio_transport_stalled"):
+        check_health({"microphone": mic}, 30, 30)
+    check_health({"microphone": mic}, 30, 2)  # Permission/connection grace period.
+
+
+async def test_capture_counters_survive_stop_without_transcript_bodies(setup):
+    capture, service, sources, streams = setup
+    sid = session(service.storage, "Diagnostics")["id"]
+    await capture.start(sid)
+    await wait_until(lambda: capture.state["status"] == "capturing")
+    await sources[0].frames.put(AudioFrame("microphone", 0, bytes(3200), 1600))
+    await streams[0].messages.put(result("Synthetic diagnostics speech"))
+    await wait_until(lambda: capture.state["segments"] == 1 and capture.state["frames"] == 1)
+    await capture.stop()
+    saved = capture.audit.last_capture()
+    assert saved["status"] == "stopped"
+    assert saved["diagnostics"]["microphone"]["input_samples"] == 1600
+    assert saved["diagnostics"]["microphone"]["results"] >= 1
+    assert "Synthetic diagnostics speech" not in json.dumps(saved)
+    assert len(service.storage.snapshot(sid)["segments"]) >= 1
+
+
+async def test_microphone_choice_is_confirmed_and_not_reused_on_resume(setup):
+    from app.reports import Reports
+    from app.speakers import Speakers
+
+    capture, service, _, streams = setup
+    current = session(service.storage, "Confirmed microphone")
+    sid, mid = current["id"], current["meeting_id"]
+    roster = Reports(service.storage).participants(mid)
+    pid = roster["participants"][0]["participant_id"]
+    with pytest.raises(DomainError, match="changed"):
+        await capture.start(sid, pid, roster["revision"] - 1)
+    with service.storage.connection() as db:
+        assert not db.execute(
+            "SELECT * FROM session_producers WHERE session_id=?", (sid,)
+        ).fetchone()
+    await capture.start(sid, pid, roster["revision"])
+    await wait_until(lambda: capture.state["status"] == "capturing")
+    await streams[0].messages.put(result())
+    await wait_until(lambda: capture.state["segments"] == 1)
+    projected = service.storage.snapshot(sid)["segments"][0]
+    assert projected["attributions"][0]["participant_id"] == pid
+    first_capture = capture.state["id"]
+    await capture.stop()
+    await capture.start(sid)
+    await wait_until(lambda: capture.state["status"] == "capturing")
+    assert capture.state["id"] != first_capture
+    await streams[2].messages.put(result())
+    await wait_until(lambda: capture.state["segments"] == 1)
+    latest = service.storage.snapshot(sid)["segments"][-1]
+    assert latest["attributions"][0]["status"] == "unassigned"
+    assert len(Speakers(service.storage).view(mid, sid)["history"]) == 1
+
+
+@pytest.mark.parametrize("diarize", [True, False])
+async def test_provider_diarization_parameter_is_pinned_and_optional(diarize):
+    from urllib.parse import parse_qs, urlparse
+
+    async def connector(url, **kwargs):
+        query = parse_qs(urlparse(url).query)
+        assert query.get("diarize_model") == (["v1"] if diarize else None)
+        assert "diarize" not in query
+        assert query["channels"] == ["1"]
+        assert "synthetic" not in url
+        return object()
+
+    await DeepgramStream("synthetic", connector, diarize=diarize).start()

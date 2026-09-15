@@ -8,7 +8,7 @@ Default analysis is simulated; Gemini can be enabled through backend configurati
 Questions use queued/asked/answered states controlled by the interviewer. Automatic status changes and cross-meeting context agents are future work.
 
 Data is local SQLite with transactional migration, revision checks and immutable evidence history.
-Reset retains meeting brief/notes and replaces its run ID. Workspace clear affects only its meetings.
+Reset retains meeting brief/notes and replaces its run ID. Workspace clear archives only its meetings. Dedicated Archives supports search/filter, restore and confirmed permanent working deletion; the protected transcript archive is retained. Workspaces can be archived and restored.
 
 See [data model](../docs/data-model.md) and [design decisions](../design/architecture.md).
 
@@ -27,3 +27,5 @@ Optional [topic memory](../design/topic-memory.md) now supports session-local to
 evidence associations, question readiness and report groupings. It is selectable from the bottom-left Analysis mode control and remains opt-in pending Gemini semantic evaluation. The browser displays evolving discussion
 threads below the transcript and saved report revisions with grouped notes, question-status charts
 and evidence-linked workflow diagrams. [Market scans](../design/market-scan.md) are future work.
+
+Detected questions actually spoken are retained separately from suggestions, with exact transcript references and confirmed roles where available. They appear in the meeting and new reports; suggestion status stays manual. See [design](../design/archives-and-question-history.md).

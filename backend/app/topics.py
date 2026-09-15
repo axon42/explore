@@ -39,15 +39,26 @@ def topic_state(memory):
     return memory.get("topic_state", {"schema_version": 1, "focus_id": "", "sources": {}})
 
 
-def normalize_initial_topic(result, context):
-    """Canonicalize only a declared first topic; never infer identity or evidence."""
+def normalize_topic_routing(result, context):
+    """Resolve redundant omissions only from explicit routing/update declarations.
+
+    Never choose a topic from a title, question, unrelated update or previous evidence.
+    The complete normalized proposal still passes all semantic/ownership validators.
+    """
+    result = result.model_copy(deep=True)
     topic = result.topic
     catalog = context["topics"]
+    known = {t["id"] for t in catalog["index"]}
+    if topic.action == "continue" and not topic.focus_id and catalog["focus_id"] in known:
+        topic.focus_id = catalog["focus_id"]
+
+    declared = [t for t in topic.updates if t.topic_id == topic.focus_id]
+    update = declared[0] if len(declared) == 1 and declared[0].assignment == "accepted" else None
     if topic.action == "continue" and not catalog["focus_id"] and not catalog["index"]:
-        declared = next((t for t in topic.updates if t.topic_id == topic.focus_id), None)
-        if declared and declared.topic_id.startswith("new:") and declared.assignment == "accepted":
-            result = result.model_copy(deep=True)
-            result.topic.action = "switch"
+        if update and update.topic_id.startswith("new:"):
+            topic.action = "switch"
+    if topic.action != "uncertain" and not topic.source_ids and update:
+        topic.source_ids = list(update.source_ids)
     return result
 
 

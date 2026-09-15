@@ -1,3 +1,5 @@
+import { selectOption } from "./select";
+import { startTest } from "./prepared";
 import { test, expect } from '@playwright/test';
 import { groupTranscript } from '../src/explore/transcript';
 import type { Segment } from '../src/types';
@@ -10,11 +12,12 @@ test('groups nearby speech without losing source identities', () => {
 
 test('frequency, discard restore, grouping and archive controls persist', async ({page, request}) => {
   const workspace = await (await request.post('/api/workspaces', {data:{name:'Pacing test'}})).json();
-  const detail = await (await request.post(`/api/workspaces/${workspace.id}/meetings`, {data:{title:'Pacing interview'}})).json();
+  const draft = await (await request.post(`/api/workspaces/${workspace.id}/meetings`, {data:{title:'Pacing interview'}})).json();
+  const detail = await startTest(request, draft.meeting.id);
   await page.goto('/');
-  await page.getByLabel('Workspace', {exact:true}).selectOption(workspace.id);
+  await selectOption(page.getByLabel('Workspace', {exact:true}), workspace.id);
   await expect(page.getByRole('heading',{name:'Pacing interview'})).toBeVisible();
-  await page.getByLabel('Question frequency').selectOption('120');
+  await selectOption(page.getByLabel('Question frequency'), '120');
   await expect.poll(async () => (await (await request.get(`/api/meetings/${detail.meeting.id}`)).json()).meeting.question_interval).toBe(120);
   for (const [i,text] of ['We use a spreadsheet to prepare reports.', 'The checks take two hours each Friday.'].entries()) {
     await request.post(`/api/sessions/${detail.session.id}/inject`, {data:{event_id:`event-${i}`,segment_id:`part-${i}`,revision:1,speaker_id:'customer',speaker_name:'Customer',start_ms:i*2000,end_ms:i*2000+1000,text,is_final:true}});
@@ -35,12 +38,11 @@ test('frequency, discard restore, grouping and archive controls persist', async 
   await request.post(`/api/sessions/${detail.session.id}/stop`);
   await expect(page.getByRole('button',{name:'Archive meeting',exact:true})).toBeEnabled();
   await page.getByRole('button',{name:'Archive meeting',exact:true}).click();
-  await expect(page.getByRole('button',{name:'Restore meeting',exact:true})).toBeVisible();
   await expect(page.getByRole('navigation',{name:'Meetings',exact:true}).getByText('Pacing interview')).toHaveCount(0);
-  await page.getByRole('button',{name:'Show archived meetings',exact:true}).click();
-  await expect(page.getByRole('navigation',{name:'Meetings',exact:true}).getByText('Pacing interview')).toBeVisible();
-  await page.reload();
-  await expect(page.getByLabel('Question frequency')).toHaveValue('120');
+  await page.getByRole('button',{name:'Archives',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Pacing interview',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Pacing interview',exact:true}).click();
+  await expect(page.getByLabel('Question frequency')).toHaveAttribute("data-value", '120');
   await page.getByRole('button',{name:'Restore meeting',exact:true}).click();
   await expect(page.getByRole('navigation',{name:'Meetings',exact:true}).getByText('Pacing interview')).toBeVisible();
 });

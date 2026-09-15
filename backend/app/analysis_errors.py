@@ -4,6 +4,8 @@ REASONS = {
     "Invalid evidence references": "evidence_missing",
     "Opportunities must be hypotheses": "hypothesis_required",
     "Unknown question": "question_unknown",
+    "Unknown workflow relationship": "workflow_reference_unknown",
+    "Duplicate workflow keys": "workflow_duplicate_key",
     "Workflow transition count mismatch": "workflow_transition_count",
     "Duplicate topic update": "topic_duplicate_update",
     "Topic already exists; use its ID": "topic_duplicate_title",

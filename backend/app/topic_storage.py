@@ -3,7 +3,22 @@
 import json
 import re
 
+from .analysis_state import analysis_segments
+from .speakers import resolved
 from .topics import normalize_intent, topic_state
+
+
+def current_attribution(db, sid, run_id):
+    return bool(
+        db.execute(
+            "SELECT 1 FROM analysis_runs r JOIN sessions s ON s.id=r.session_id "
+            "WHERE r.id=? AND s.id=? "
+            "AND COALESCE(json_extract(r.input_json,'$.attribution_version'),0)"
+            "=s.attribution_version",
+            (run_id, sid),
+        ).fetchone()
+    )
+
 
 DDL = [
     """CREATE TABLE topics(
@@ -43,7 +58,9 @@ def read_topics(db, sid, segments, state):
     for row in db.execute("SELECT * FROM topics WHERE session_id=? ORDER BY rowid", (sid,)):
         topic = dict(row)
         sources = json.loads(topic.pop("summary_sources"))
-        topic["needs_review"] = not all(current.get(k) == v for k, v in sources.items())
+        topic["needs_review"] = not current_attribution(db, sid, topic["run_id"]) or not all(
+            current.get(k) == v for k, v in sources.items()
+        )
         if topic["needs_review"]:
             topic["summary"] = ""
         topic["summary_sources"] = sources
@@ -79,11 +96,12 @@ def catalog(db, sid, context, memory):
         r["segment_id"]: json.loads(r["payload"])
         for r in db.execute("SELECT segment_id,payload FROM segments WHERE session_id=?", (sid,))
     }
+    segments = {s["segment_id"]: s for s in resolved(db, sid, list(segments.values()))}
     details, evidence, questions = [], {}, []
     evidence_budget = 8000
     for row in rows[:3]:
         sources = json.loads(row["summary_sources"])
-        valid = all(
+        valid = current_attribution(db, sid, row["run_id"]) and all(
             k in segments and segments[k]["is_final"] and segments[k]["revision"] == v
             for k, v in sources.items()
         )
@@ -132,7 +150,7 @@ def catalog(db, sid, context, memory):
         "omitted_topics": max(0, total - len(rows)),
         "details": details,
         "questions": questions,
-        "evidence": list(evidence.values()),
+        "evidence": analysis_segments(list(evidence.values())),
     }
 
 

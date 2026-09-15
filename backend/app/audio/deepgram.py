@@ -8,13 +8,58 @@ from urllib.parse import urlencode
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosedOK
 
-from ..models import TranscriptEvent
+from ..models import AttributedTranscriptEvent, SpeakerMetadata, SpeakerSpan
 from .source import AudioError
 
 
+def speaker_spans(text, words, final, single_person):
+    """Only exact sequential word alignment establishes a voice; retain unknown text."""
+    unknown = [SpeakerSpan(start=0, end=len(text), label=None)]
+    if single_person:
+        return [SpeakerSpan(start=0, end=len(text), label=0)]
+    if not final or not isinstance(words, list) or not words or len(words) > 2000:
+        return unknown
+    spans, cursor, last_time = [], 0, 0
+    for word in words:
+        if not isinstance(word, dict):
+            return unknown
+        token = word.get("punctuated_word", word.get("word"))
+        if not isinstance(token, str) or not token:
+            return unknown
+        start = cursor
+        while start < len(text) and text[start].isspace():
+            start += 1
+        if not text.startswith(token, start):
+            return unknown
+        end = start + len(token)
+        label = word.get("speaker")
+        times = (word.get("start"), word.get("end"))
+        valid_time = all(type(t) in (int, float) and math.isfinite(t) and t >= 0 for t in times)
+        if (
+            type(label) is not int
+            or not 0 <= label <= 999
+            or not valid_time
+            or times[1] < times[0]
+            or times[0] < last_time - 0.02
+        ):
+            label = None
+        if valid_time:
+            last_time = times[1]
+        if spans and spans[-1].label == label:
+            spans[-1].end = end
+        else:
+            spans.append(SpeakerSpan(start=cursor, end=end, label=label))
+        cursor = end
+    if text[cursor:].strip():
+        return unknown
+    spans[-1].end = len(text)
+    return spans
+
+
 class DeepgramNormalizer:
-    def __init__(self, capture_id, channel, offset_ms):
+    def __init__(self, capture_id, channel, offset_ms, single_person=False):
         self.prefix = f"audio-{capture_id}-{channel}"
+        self.capture_id, self.single_person = capture_id, single_person
         self.channel, self.offset_ms = channel, offset_ms
         self.revisions = {}
 
@@ -30,7 +75,7 @@ class DeepgramNormalizer:
                     type(v) not in (int, float) or not math.isfinite(v) or v < 0
                     for v in (start, duration)
                 )
-                or start + duration > 3700
+                or (start + duration) * 1000 + self.offset_ms > 9007199254740991
             ):
                 raise ValueError
             text = message["channel"]["alternatives"][0]["transcript"]
@@ -40,7 +85,21 @@ class DeepgramNormalizer:
             if not text.strip():
                 return None
             key = round(start * 1000)
-            signature = hashlib.sha256(json.dumps([text, final, duration]).encode()).hexdigest()
+            text = text.strip()
+            metadata = SpeakerMetadata(
+                capture_id=self.capture_id,
+                channel=self.channel,
+                method="single_person_source" if self.single_person else "diarized",
+                spans=speaker_spans(
+                    text,
+                    message["channel"]["alternatives"][0].get("words"),
+                    final,
+                    self.single_person,
+                ),
+            )
+            signature = hashlib.sha256(
+                json.dumps([text, final, duration, metadata.model_dump()]).encode()
+            ).hexdigest()
             previous = self.revisions.get(key)
             if previous and previous[1] == signature:
                 return None
@@ -48,7 +107,8 @@ class DeepgramNormalizer:
                 return None
             revision = previous[0] + 1 if previous else 0
             self.revisions[key] = (revision, signature, final)
-            return TranscriptEvent(
+            return AttributedTranscriptEvent(
+                speaker_metadata=metadata,
                 event_id=f"{self.prefix}-{key}-{signature}",
                 segment_id=f"{self.prefix}-{key}",
                 revision=revision,
@@ -56,7 +116,7 @@ class DeepgramNormalizer:
                 speaker_name="Microphone" if self.channel == "microphone" else "System audio",
                 start_ms=self.offset_ms + key,
                 end_ms=self.offset_ms + round((start + duration) * 1000),
-                text=text.strip(),
+                text=text,
                 is_final=final,
             )
         except (KeyError, IndexError, TypeError, ValueError) as exc:
@@ -64,8 +124,9 @@ class DeepgramNormalizer:
 
 
 class DeepgramStream:
-    def __init__(self, key, connector=connect):
+    def __init__(self, key, connector=connect, *, diarize=True):
         self.key, self.connector = key, connector
+        self.diarize = diarize
         self.socket = None
 
     async def start(self):
@@ -79,6 +140,7 @@ class DeepgramStream:
                 "interim_results": "true",
                 "punctuate": "true",
                 "endpointing": 300,
+                **({"diarize_model": "v1"} if self.diarize else {}),
             }
         )
         self.socket = await self.connector(

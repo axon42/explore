@@ -1,3 +1,4 @@
+import { Select } from "./Select";
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
@@ -17,9 +18,13 @@ import {
 } from "lucide-react";
 import { api, timestamp } from "../types";
 import type { Evidence, Question } from "./data";
+import { Preparation } from "./Preparation";
 import { useMeeting } from "./useMeeting";
+import { SpokenQuestions } from "./SpokenQuestions";
 import { groupTranscript } from "./transcript";
 import { AudioCapture } from "./AudioCapture";
+import { Speakers } from "./Speakers";
+import type { Passage } from "./Speakers";
 import { BriefEditor, Notes } from "./Editors";
 import { GeneratedNotes, Participants, Reports } from "./Records";
 import { DiscussionThreads } from "./DiscussionThreads";
@@ -27,7 +32,9 @@ export function MeetingView({
   id,
   workspace,
   onChanged,
+  testMode,
 }: {
+  testMode: boolean;
   id: string;
   workspace: string;
   onChanged: () => Promise<void>;
@@ -41,6 +48,7 @@ export function MeetingView({
   const [text, setText] = useState("");
   const [speaker, setSpeaker] = useState("customer");
   const [focus, setFocus] = useState<Evidence>();
+  const [speakerPassage, setSpeakerPassage] = useState<Passage>();
   const resetDialog = useRef<HTMLDialogElement>(null);
   const injectionId = useRef<string | undefined>(undefined);
   const transcriptScroll = useRef<HTMLDivElement>(null);
@@ -90,6 +98,8 @@ export function MeetingView({
       </div>
     );
   const { detail, segments, experiment } = bundle;
+  if (!detail.session || !experiment) return <Preparation detail={detail} testMode={testMode} reload={reload} />;
+  const testTools = testMode && detail.session.mode !== "real";
   const sid = detail.session.id;
   const stopped = detail.session.status === "stopped";
   const activeQuestions = detail.questions.filter((q) => q.status !== "discarded");
@@ -156,17 +166,19 @@ export function MeetingView({
           </p>
         </div>
         <div className="ex-header-actions">
-          {!stopped && <a href={`/zoom-proof.html?session=${encodeURIComponent(sid)}`} target="_blank" rel="noopener noreferrer">Zoom test ↗</a>}
+          {testTools && !stopped && <a href={`/zoom-proof.html?session=${encodeURIComponent(sid)}`} target="_blank" rel="noopener noreferrer">Zoom test ↗</a>}
           <span className="ex-mode">
             {experiment.provider === "mock" ? "Simulated analysis" : "Gemini"}
           </span>
           <button disabled={busy || (!stopped && !detail.meeting.archived)} title={!stopped ? "Stop the meeting before archiving" : undefined} onClick={() => void action(`/meetings/${id}/preferences`, {revision: detail.meeting.context_version, archived: !detail.meeting.archived}, "PATCH")}>
             {detail.meeting.archived ? "Restore meeting" : "Archive meeting"}
           </button>
-          <button disabled={!!detail.meeting.archived} onClick={() => resetDialog.current?.showModal()}>
+          {!stopped && <button disabled={busy} onClick={() => void action(`/sessions/${sid}/stop`)}>End interview</button>}
+          {detail.session.mode === "test" && <span className="ex-mode">Test meeting</span>}
+          {testTools && <button disabled={!!detail.meeting.archived} onClick={() => resetDialog.current?.showModal()}>
             <RotateCcw size={14} />
             Reset test
-          </button>
+          </button>}
         </div>
       </header>
       <nav className="ex-tabs" aria-label="Meeting views">
@@ -192,7 +204,8 @@ export function MeetingView({
       <div className="ex-content">
         {tab === "Interview" && (
           <>
-            <AudioCapture key={sid} sid={sid} stopped={stopped} />
+            <AudioCapture key={sid} mid={id} sid={sid} stopped={stopped} />
+            <Speakers key={`speakers-${sid}`} mid={id} sid={sid} passage={speakerPassage} onClose={() => setSpeakerPassage(undefined)} />
             <div className="ex-interview-grid">
               <div className="ex-conversation">
               <section className="ex-transcript">
@@ -238,21 +251,23 @@ export function MeetingView({
                   }}
                 >
                   {groupTranscript(segments).map((group) => (
-                    <article key={group[0].segment_id}>
+                    <article key={`${group[0].segment_id}-${group[0].span_index ?? "legacy"}`}>
                       <header>
                         <span className={"ex-avatar " + (group[0].speaker_id === "customer" ? "customer" : "")}>{(group[0].speaker_name || group[0].speaker_id)[0]}</span>
                         <strong>{group[0].speaker_name || group[0].speaker_id}</strong>
+                        {group[0].attribution_status && <small className="ex-speaker-role">{group[0].attribution_status === "confirmed" ? group[0].interview_role : "Unassigned"}</small>}
                         <time>{timestamp(group[0].start_ms)}</time>
                       </header>
-                      <p>{group.map((segment) => <span key={segment.segment_id} id={"source-" + segment.segment_id} className={focus?.segment_id === segment.segment_id ? "highlight" : undefined}>
+                      <p>{group.map((segment) => <span key={`${segment.segment_id}-${segment.span_index ?? "legacy"}`} id={segment.anchor === false ? undefined : "source-" + segment.segment_id} className={focus?.segment_id === segment.segment_id ? "highlight" : undefined}>
                         {segment.text}{!segment.is_final && <small> Draft</small>}{" "}
+                        {segment.is_final && segment.span_index !== undefined && <button className="ex-correct-speaker" onClick={() => setSpeakerPassage({ segment_id: segment.segment_id, segment_revision: segment.revision, span_index: segment.span_index!, text: segment.text })}>Correct speaker</button>}
                       </span>)}</p>
                     </article>
                   ))}
                   {!segments.length && (
                     <div className="ex-empty small">
                       <FileText size={25} />
-                      <p>Play the test interview or inject dialogue.</p>
+                      <p>Start audio capture to see the conversation here.</p>
                     </div>
                   )}
                 </div>
@@ -271,7 +286,7 @@ export function MeetingView({
                     Latest transcript ↓
                   </button>
                 )}
-                <div className="ex-playback">
+                {testTools && <><div className="ex-playback">
                   <button
                     className="ex-primary"
                     disabled={
@@ -305,14 +320,14 @@ export function MeetingView({
                   >
                     <SkipForward size={15} />
                   </button>
-                  <select
+                  <Select
                     aria-label="Playback speed"
                     disabled={busy || stopped}
                     value={experiment.speed}
-                    onChange={(e) =>
+                    onValueChange={(value) =>
                       void action(`/sessions/${sid}/playback`, {
                         action: experiment.playing ? "play" : "pause",
-                        speed: Number(e.target.value),
+                        speed: Number(value),
                       })
                     }
                   >
@@ -321,7 +336,7 @@ export function MeetingView({
                         {n}×
                       </option>
                     ))}
-                  </select>
+                  </Select>
                   <span>
                     {experiment.cursor}/{experiment.total} turns
                   </span>
@@ -343,18 +358,18 @@ export function MeetingView({
                       void inject();
                     }}
                   >
-                    <select
+                    <Select
                       aria-label="Speaker"
                       value={speaker}
                       disabled={busy || stopped}
-                      onChange={(e) => {
-                        setSpeaker(e.target.value);
+                      onValueChange={(value) => {
+                        setSpeaker(value);
                         injectionId.current = undefined;
                       }}
                     >
                       <option value="customer">Customer</option>
                       <option value="cofounder">Cofounder</option>
-                    </select>
+                    </Select>
                     <textarea
                       aria-label="Transcript text"
                       rows={3}
@@ -373,9 +388,10 @@ export function MeetingView({
                       Inject
                     </button>
                   </form>
-                </details>
+                </details></>}
               </section>
               <DiscussionThreads key={sid} mid={id} sid={sid} stopped={stopped} strategy={experiment.strategy} analyzing={experiment.analysis_status === "analyzing"} segments={segments} onEvidence={evidence} />
+              <SpokenQuestions items={detail.spoken_questions || []} onEvidence={evidence} />
               </div>
               <section className="ex-questions">
                 <div className="ex-panel-title">
@@ -397,12 +413,12 @@ export function MeetingView({
                     answered<span>{asked} asked</span>
                     <span>{activeQuestions.length - answered - asked} queued</span>
                   </div>
-                  <label>Question frequency <select aria-label="Question frequency" disabled={busy} value={detail.meeting.question_interval} onChange={(e) => void action(`/meetings/${id}/preferences`, {revision: detail.meeting.context_version, question_interval: Number(e.target.value)}, "PATCH")}>
+                  <label>Question frequency <Select aria-label="Question frequency" disabled={busy} value={detail.meeting.question_interval} onValueChange={(value) => void action(`/meetings/${id}/preferences`, {revision: detail.meeting.context_version, question_interval: Number(value)}, "PATCH")}>
                     <option value={30}>At most every 30 seconds</option>
                     <option value={60}>At most every minute</option>
                     <option value={120}>At most every 2 minutes</option>
                     <option value={0}>Off · notes only</option>
-                  </select></label>
+                  </Select></label>
                 </div>
                 <div className="ex-filters">
                   {["all", "queued", "asked", "answered", "discarded"].map((name) => (
@@ -435,6 +451,7 @@ export function MeetingView({
                     >
                       {q.text}
                     </button>
+                    {q.needs_review && <p className="ex-speaker-review">Speaker details changed · review this question</p>}
                     <p>{q.rationale}</p>
                     <footer>
                       <div className="ex-sources">
@@ -487,8 +504,11 @@ export function MeetingView({
                 </small>
               )}
             </div>
-            <div className="ex-findings">
-              {detail.findings.map((f) => (
+            {[...(detail.workflows || []).map(w => ({ ...w, findings: detail.findings.filter(f => f.workflow_key === w.key && f.topic_id === w.topic_id) })),
+              { key: "", topic_id: "", title: "Not linked to a workflow", findings: detail.findings.filter(f => !f.workflow_key || !(detail.workflows || []).some(w => w.key === f.workflow_key && w.topic_id === f.topic_id)) }
+            ].filter(group => group.findings.length).map(group => <section className="ex-workflow-group" key={JSON.stringify([group.topic_id,group.key])}>
+            <h2>{group.title}</h2><div className="ex-findings">
+              {group.findings.map((f) => (
                 <article className={f.kind} key={f.id}>
                   <span className="ex-category">
                     {f.kind === "gap" ? <CircleHelp size={13} /> : f.kind === "opportunity" ? <Sparkles size={13} /> : <Workflow size={13} />}
@@ -517,7 +537,7 @@ export function MeetingView({
                   </footer>
                 </article>
               ))}
-            </div>
+            </div></section>)}
           </section>
         )}
         {tab === "Brief" && <><BriefEditor detail={detail} onSaved={reload} /><Participants key={id} mid={id} /></>}
@@ -545,8 +565,8 @@ export function MeetingView({
           </button>
         </header>
         <p>
-          Delete this meeting’s transcript, questions, analysis and reports. Keep its
-          brief and notes. The new test gets a fresh session; old transcript
+          Clear this meeting’s working transcript, questions, analysis and reports. Keep its
+          brief, notes and separate transcript archive. The meeting returns to Draft; old transcript
           streams cannot write to it.
         </p>
         {actionError && (

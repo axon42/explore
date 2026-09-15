@@ -27,6 +27,7 @@ def test_proof_tokens_are_scoped_and_bounded(tmp_path):
         zoom_video_sdk_secret=secret,
     )
     with TestClient(create_app(settings)) as client:
+        client.put("/settings/test-mode", json={"enabled": True})
         path = "/integrations/zoom/proof/join"
         headers = {"Origin": "http://localhost:5173"}
         assert client.post(path, json={"name": "A"}).status_code == 403
@@ -64,6 +65,7 @@ def test_disconnect_rotates_room_rejects_stale_controls_and_preserves_transcript
         zoom_video_sdk_secret="x" * 32,
     )
     with TestClient(create_app(settings)) as client:
+        client.put("/settings/test-mode", json={"enabled": True})
         root = "/integrations/zoom/proof"
         headers = {"Origin": "http://localhost:5173"}
         generation = client.get(root).json()["generation"]

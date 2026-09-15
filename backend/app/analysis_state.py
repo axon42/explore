@@ -12,7 +12,17 @@ class Contract(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class Claim(Contract):
+class SpeakerEvidence(Contract):
+    source_id: str = Field(min_length=1, max_length=200)
+    span_index: int = Field(ge=0, le=1999)
+
+
+class AttributedProposal(Contract):
+    attributed_to: str = Field(default="", max_length=200)
+    speaker_evidence: list[SpeakerEvidence] = Field(default_factory=list, max_length=10)
+
+
+class Claim(AttributedProposal):
     key: str = Field(min_length=1, max_length=100)
     topic_id: str = Field(default="", max_length=100)
     section: Literal["workflows", "pain_impact", "alternatives", "opportunities", "next_steps"]
@@ -83,6 +93,13 @@ def empty_memory():
 def reconcile(memory, snapshot):
     """Remove only derived records dependent on corrected sources; keep run history."""
     memory = copy.deepcopy(memory)
+    attribution_version = snapshot.get("session", {}).get("attribution_version", 0)
+    if memory.get("attribution_version", 0) != attribution_version:
+        memory = {
+            **empty_memory(),
+            "version": memory["version"],
+            "attribution_version": attribution_version,
+        }
     current = {s["segment_id"]: s["revision"] for s in snapshot["segments"] if s["is_final"]}
     memory["coverage"] = {k: v for k, v in memory["coverage"].items() if current.get(k) == v}
     for field in ("claims", "matches", "workflows"):
@@ -98,19 +115,27 @@ def reconcile(memory, snapshot):
 
 
 class ContextBuilder:
-    def build(self, snapshot, meeting, memory, objective):
+    def build(self, snapshot, meeting, memory, objective, batch_reduction=0):
         memory = reconcile(memory, snapshot)
         finals = [s for s in snapshot["segments"] if s["is_final"]]
         pending = [s for s in finals if memory["coverage"].get(s["segment_id"]) != s["revision"]]
         if not pending and memory["context_version"] == meeting["version"]:
             return None
         # Never truncate an unprocessed segment. The event contract bounds one at 20K chars.
-        selected, size = [], 0
+        selected, size, words = [], 0, 0
+        factor = 2 ** min(3, max(0, batch_reduction))
+        char_limit, segment_limit = 24000 // factor, max(1, 60 // factor)
         for s in pending:
-            if selected and (size + len(s["text"]) > 24000 or len(selected) >= 60):
+            # A reduced fragment cap must still let short STT fragments reach the
+            # existing 35-word readiness gate; otherwise a retry can wait forever.
+            count_full = len(selected) >= segment_limit and (words >= 35 or factor == 1)
+            if selected and (
+                size + len(s["text"]) > char_limit or count_full or len(selected) >= 60
+            ):
                 break
             selected.append(s)
             size += len(s["text"])
+            words += len(s["text"].split())
         new_ids = {s["segment_id"] for s in selected}
         recent = []
         budget = 4000
@@ -126,14 +151,32 @@ class ContextBuilder:
             recent = finals[-1:]
         segments = sorted(selected + recent, key=lambda s: (s["start_ms"], s["segment_id"]))
         return {
+            "attribution_version": snapshot.get("session", {}).get("attribution_version", 0),
             "objective": meeting["brief"].get("objective") or objective,
             "meeting": meeting,
-            "segments": segments,
+            "segments": analysis_segments(segments),
             "new_source_ids": sorted(new_ids),
             "memory": {k: memory[k][-40:] for k in ("claims", "matches", "workflows")},
             "base_state_version": memory["version"],
             "input_version": snapshot["version"],
         }
+
+
+def analysis_segments(segments):
+    """Exclude raw adapter metadata and redundant labels from bounded model context."""
+    result = []
+    for segment in segments:
+        item = {k: v for k, v in segment.items() if k != "speaker_metadata"}
+        if "attributions" in item:
+            item["attributions"] = [
+                {
+                    k: a[k]
+                    for k in ("index", "start", "end", "participant_id", "interview_role", "status")
+                }
+                for a in item["attributions"]
+            ]
+        result.append(item)
+    return result
 
 
 class AnalysisStrategy:
@@ -150,12 +193,46 @@ def validate_proposal(result, context):
         if not ids or not set(ids) <= refs:
             raise ValueError("Invalid evidence references")
 
+    def check_person(item):
+        if not item.attributed_to:
+            if item.speaker_evidence:
+                raise ValueError("Speaker evidence requires a confirmed person")
+            return
+        if not item.speaker_evidence:
+            raise ValueError("Person attribution requires exact speaker spans")
+        available = {
+            (s["segment_id"], a["index"]): a
+            for s in context["segments"]
+            for a in s.get("attributions", [])
+            if s["is_final"]
+        }
+        for ref in item.speaker_evidence:
+            span = available.get((ref.source_id, ref.span_index))
+            if (
+                ref.source_id not in item.source_ids
+                or not span
+                or span["status"] != "confirmed"
+                or span["participant_id"] != item.attributed_to
+            ):
+                raise ValueError("Unconfirmed or inconsistent speaker evidence")
+
     if result.question:
         check(result.source_ids)
+    workflow_keys = {
+        (w.get("topic_id", ""), w["key"]) for w in context.get("memory", {}).get("workflows", [])
+    }
+    proposed_keys = [(w.topic_id, w.key) for w in result.workflows]
+    if len(set(proposed_keys)) != len(proposed_keys):
+        raise ValueError("Duplicate workflow keys")
+    workflow_keys.update(proposed_keys)
     for finding in result.findings:
         check(finding.source_ids)
+        check_person(finding)
+        if finding.workflow_key and (finding.topic_id, finding.workflow_key) not in workflow_keys:
+            raise ValueError("Unknown workflow relationship")
     for claim in result.claims:
         check(claim.source_ids)
+        check_person(claim)
         if claim.section == "opportunities" and claim.basis != "inferred":
             raise ValueError("Opportunities must be hypotheses")
     questions = {q["id"] for q in context["meeting"]["previous_questions"]}

@@ -24,14 +24,28 @@ class Settings(BaseSettings):
     zoom_video_sdk_key: SecretStr = SecretStr("")
     zoom_video_sdk_secret: SecretStr = SecretStr("")
     deepgram_api_key: SecretStr = SecretStr("")
-    audio_capture_max_seconds: int = Field(default=120, ge=30, le=600)
+    # Zero means manual stop; a positive value is an optional local test cutoff.
+    audio_capture_max_seconds: int = Field(default=0, ge=0, le=600)
     zoom_proof_enabled: bool = False
     zoom_webhook_secret_token: SecretStr = SecretStr("")
+
+    @field_validator("audio_capture_max_seconds")
+    @classmethod
+    def capture_cutoff(cls, value: int) -> int:
+        if 0 < value < 30:
+            raise ValueError("Capture cutoff must be 0 (manual stop) or 30–600 seconds")
+        return value
 
     @field_validator("data_dir")
     @classmethod
     def absolute_data_dir(cls, value: Path) -> Path:
         return value if value.is_absolute() else ROOT / value
+
+    @property
+    def transcript_archive_path(self) -> Path:
+        # Sibling of disposable working data, including isolated per-test data directories.
+        directory = self.data_dir.resolve()
+        return directory.parent / f"{directory.name}-transcripts" / "transcripts.sqlite3"
 
     @property
     def origins(self) -> set[str]:

@@ -78,7 +78,7 @@ final class AudioMux {
             lock.unlock()
             if size < 3200 { data.append(Data(count: 3200 - size)) }
             emit(["type": "audio", "channel": channel, "sequence": sequence,
-                  "pcm": data.base64EncodedString()])
+                  "pcm": data.base64EncodedString(), "input_samples": size / 2])
         }
         sequence += 1
     }
@@ -93,6 +93,7 @@ final class Capture: NSObject, SCStreamOutput, SCStreamDelegate {
     var stream: SCStream?
     var stopping = false
     var tapped = false
+    var deviceObserver: NSObjectProtocol?
 
     func start() async {
         mux.fail = { [weak self] code in
@@ -133,6 +134,12 @@ final class Capture: NSObject, SCStreamOutput, SCStreamDelegate {
             try await stream.startCapture()
             emit(["type": "ready", "version": 1, "sample_rate": 16000])
             mux.start()
+            deviceObserver = NotificationCenter.default.addObserver(
+                forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
+            ) { [weak self] _ in
+                guard let self = self else { return }
+                Task { await self.stop("audio_device_changed") }
+            }
         } catch { await stop("system_capture") }
     }
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
@@ -164,6 +171,7 @@ final class Capture: NSObject, SCStreamOutput, SCStreamDelegate {
     @MainActor func stop(_ code: String? = nil) async {
         if stopping { return }; stopping = true
         mux.stop()
+        if let observer = deviceObserver { NotificationCenter.default.removeObserver(observer) }
         if tapped { engine.inputNode.removeTap(onBus: 0) }
         engine.stop()
         if let stream = stream { try? await stream.stopCapture() }
@@ -232,10 +240,15 @@ if CommandLine.arguments.contains("--self-test") {
     let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4800)!
     buffer.frameLength = 4800
     for i in 0..<4800 { buffer.floatChannelData![0][i] = 0.25 }
-    let data = try PCMConverter().convert(buffer)
-    precondition(data.count > 2000 && data.count <= 3264)
-    precondition(data.count % 2 == 0)
-    print("PCM conversion passed")
+    let converter = PCMConverter()
+    // Continuous conversion must keep producing nonzero speech after the first buffer.
+    for _ in 0..<1200 {
+        let data = try converter.convert(buffer)
+        precondition(data.count > 2000 && data.count <= 3264)
+        precondition(data.count % 2 == 0)
+        precondition(data.contains { $0 != 0 })
+    }
+    print("Two minutes of continuous PCM conversion passed")
 } else {
     let app = NSApplication.shared
     let delegate = AppDelegate()

@@ -152,7 +152,10 @@ async def test_corrected_evidence_invalidates_summary_and_reset_clears_topics(pi
     assert Reports(pipeline.service.storage).export(mid)["topics"]
     pipeline.discovery.preferences(mid, revision + 1, archived=False)
     fresh = pipeline.discovery.reset(mid)
-    assert fresh["session"]["id"] != sid
+    assert fresh["session"] is None
+    from tests.prepared import start_local
+
+    fresh = start_local(pipeline.service.storage, mid)
     assert not Reports(pipeline.service.storage).export(mid)["topics"]
     with pipeline.service.storage.connection() as db:
         assert not db.execute("PRAGMA foreign_key_check").fetchall()
@@ -447,7 +450,10 @@ async def test_reset_cancels_topic_job_and_budget_preserves_pending_sources(pipe
     await pipeline.stop(sid)
     fresh = pipeline.discovery.reset(mid)
     assert not Reports(pipeline.service.storage).export(mid)["topics"]
-    assert fresh["session"]["id"] != sid
+    assert fresh["session"] is None
+    from tests.prepared import start_local
+
+    fresh = start_local(pipeline.service.storage, mid)
     with pipeline.service.storage.connection() as db:
         assert not db.execute("SELECT 1 FROM topics WHERE session_id=?", (sid,)).fetchone()
     pipeline.settings.analysis_max_calls = 1

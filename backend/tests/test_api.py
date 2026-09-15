@@ -32,9 +32,10 @@ def client(tmp_path):
 
 
 def create(client):
-    response = client.post("/sessions", json={"title": "Planning"})
-    assert response.status_code == 201
-    return response.json()["id"]
+    from tests.prepared import start
+
+    draft = client.post("/workspaces/default/meetings", json={"title": "Planning"}).json()
+    return start(client, draft["meeting"]["id"])["session"]["id"]
 
 
 def send(client, session_id, **changes):
@@ -182,8 +183,10 @@ def test_origin_token_and_missing_sessions(tmp_path):
 
 
 def test_default_title(client):
-    assert client.post("/sessions", json={}).json()["title"] == "Untitled session"
-    assert client.post("/sessions", json={"title": "  "}).json()["title"] == "Untitled session"
+    draft = client.post("/workspaces/default/meetings", json={}).json()
+    assert draft["meeting"]["title"] == "Untitled interview"
+    assert draft["session"] is None
+    assert client.post("/sessions", json={}).json()["code"] == "meeting_preparation_required"
 
 
 def test_only_one_demo_task_and_stop_cleans_it(client, monkeypatch):

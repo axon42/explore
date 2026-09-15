@@ -1,20 +1,31 @@
+import { Select } from "./Select";
 import { useEffect, useRef, useState } from "react";
 import { Mic, Square, Radio } from "lucide-react";
 import { api } from "../types";
+import type { Person } from "./Speakers";
 
 type Capture = {
+  stage?: string;
+  diagnostics?: Record<string, {frames:number; results:number; accepted:number; input_samples:number; input_observable:boolean; peak_level:number; last_input_seconds:number|null; last_result_seconds:number|null}>;
   id: string; sid: string; status: string; error: string; elapsed_seconds: number;
   microphone_level: number; system_level: number; segments: number;
 };
 type State = { supported: boolean; configured: boolean; helper_ready: boolean; max_seconds: number; capture: Capture | null };
 const activeStates = new Set(["starting", "capturing", "stopping"]);
 
-export function AudioCapture({ sid, stopped }: { sid: string; stopped: boolean }) {
+export function AudioCapture({ mid, sid, stopped }: { mid: string; sid: string; stopped: boolean }) {
   const [state, setState] = useState<State>();
   const [error, setError] = useState("");
   const [connectionError, setConnectionError] = useState("");
   const [busy, setBusy] = useState(false);
   const [consent, setConsent] = useState(false);
+  const [roster, setRoster] = useState<{ revision: number; participants: Person[] }>();
+  const [microphonePerson, setMicrophonePerson] = useState("");
+  async function openSetup() {
+    setConsent(false); setError(""); setRoster(undefined); setMicrophonePerson(""); dialog.current?.showModal();
+    try { setRoster(await api(`/meetings/${mid}/participants`)); }
+    catch (e) { setError((e as Error).message); }
+  }
   const dialog = useRef<HTMLDialogElement>(null);
   const startButton = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -43,7 +54,7 @@ export function AudioCapture({ sid, stopped }: { sid: string; stopped: boolean }
     setBusy(true); setError("");
     try {
       const next = await api<State>(`/sessions/${sid}/audio-capture${stop ? "/stop" : ""}`, {
-        method: "POST", body: JSON.stringify(stop ? { capture_id: capture?.id } : { consent: true }),
+        method: "POST", body: JSON.stringify(stop ? { capture_id: capture?.id } : { consent: true, microphone_participant_id: microphonePerson || null, roster_revision: roster?.revision }),
       });
       setState(next); close();
     } catch (e) { setError((e as Error).message); }
@@ -56,24 +67,34 @@ export function AudioCapture({ sid, stopped }: { sid: string; stopped: boolean }
     <div className="ex-audio-heading"><div><span className="ex-icon"><Radio size={15} /></span><strong>Mac audio</strong>
       <span>{active && mine ? capture.status === "starting" ? "Waiting for permissions / connection" : capture.status : "Microphone + system audio"}</span></div>
       {active && mine ? <button disabled={busy} onClick={() => void command(true)}><Square size={13} />Stop capture</button>
-        : <button className="ex-primary" ref={startButton} disabled={!canStart || busy} onClick={() => { setConsent(false); setError(""); dialog.current?.showModal(); }}><Mic size={14} />Capture audio</button>}
+        : <button className="ex-primary" ref={startButton} disabled={!canStart || busy} onClick={() => void openSetup()}><Mic size={14} />Capture audio</button>}
     </div>
     {active && mine && <div className="ex-audio-meters">
       <label>Microphone <meter min={0} max={1} value={capture.microphone_level} /></label>
       <label>System audio <meter min={0} max={1} value={capture.system_level} /></label>
-      <span>{Math.floor(capture.elapsed_seconds / 60)}:{String(capture.elapsed_seconds % 60).padStart(2, "0")} / {Math.floor((state?.max_seconds ?? 120) / 60)} min · {capture.segments} finalized segments</span>
+      <span>{Math.floor(capture.elapsed_seconds / 60)}:{String(capture.elapsed_seconds % 60).padStart(2, "0")}{!!state?.max_seconds && ` / ${Math.floor(state.max_seconds / 60)} min`} · {capture.segments} finalized segments</span>
     </div>}
     {(setup || (active && !mine)) && <p>{active && !mine ? "Another meeting is capturing audio. Stop that capture before starting here." : setup}</p>}
     {mine && !active && capture?.status === "stopped" && <p>Capture stopped. Accepted transcripts are saved.</p>}
     {((error && !dialog.current?.open) || connectionError || (mine && capture?.error)) && <p role="alert">{(!dialog.current?.open && error) || connectionError || capture?.error}</p>}
+    {mine && capture?.diagnostics && <details className="ex-audio-diagnostics"><summary>Capture diagnostics</summary>
+      <p>Stage: {capture.stage} · Run {capture.id}</p>
+      {Object.entries(capture.diagnostics).map(([channel, d]) => <div key={channel}><strong>{channel === "microphone" ? "Microphone" : "System audio"}</strong><dl>
+        <dt>Input samples</dt><dd>{d.input_observable ? d.input_samples.toLocaleString() : "Rebuild helper to enable"}</dd>
+        <dt>Frames sent</dt><dd>{d.frames}</dd><dt>Provider results / accepted</dt><dd>{d.results} / {d.accepted}</dd>
+        <dt>Last input / result</dt><dd>{d.last_input_seconds ?? "—"}s / {d.last_result_seconds ?? "—"}s</dd>
+        <dt>Peak signal</dt><dd>{Math.round(d.peak_level * 100)}%</dd>
+      </dl></div>)}<p>Only timing and counters are retained. Audio is not stored.</p>
+    </details>}
     <dialog ref={dialog} className="ex-dialog ex-audio-dialog" aria-labelledby="audio-consent-title" onCancel={e => { e.preventDefault(); if (!busy) close(); }}>
       <header><span className="ex-icon"><Mic size={18} /></span><h2 id="audio-consent-title">Capture this conversation</h2></header>
       <p className="ex-capture-detail">Explore will send your microphone and all system audio to Deepgram for transcription, then use your configured analysis provider. Screen video and audio files are not saved by Explore.</p>
-      <p>Use headphones to avoid duplicate speech. Remote voices share the “System audio” label. Close other apps playing private audio.</p>
-      <p>Stops automatically after {Math.floor((state?.max_seconds ?? 120) / 60)} minutes. Provider usage is billed separately from Gemini.</p>
+      <p>Use headphones to avoid duplicate speech. Confirm remote voices in the Speakers panel. Close other apps playing private audio.</p>
+      <p>{state?.max_seconds ? `Stops automatically after ${Math.floor(state.max_seconds / 60)} minutes.` : "Capture continues until you select Stop capture or End interview."} Provider usage is billed separately from Gemini.</p>
+      <label className="ex-microphone-person">Who is using this microphone?<Select value={microphonePerson} disabled={busy || !roster} onValueChange={value => setMicrophonePerson(value)}><option value="">Shared microphone / not sure</option>{roster?.participants.map(p => <option key={p.participant_id} value={p.participant_id}>{p.name} · {p.interview_role}</option>)}</Select></label>
       <label><input type="checkbox" disabled={busy} checked={consent} onChange={e => setConsent(e.target.checked)} /><span>Everyone has agreed to transcription and AI processing.</span></label>
       {error && <p className="ex-capture-error" role="alert">{error}</p>}
-      <footer><button disabled={busy} onClick={close}>Cancel</button><button className="ex-primary" disabled={busy || !consent || !canStart || !!connectionError} onClick={() => void command(false)}>{busy ? "Starting…" : "Start capture"}</button></footer>
+      <footer><button disabled={busy} onClick={close}>Cancel</button><button className="ex-primary" disabled={busy || !roster || !consent || !canStart || !!connectionError} onClick={() => void command(false)}>{busy ? "Starting…" : "Start capture"}</button></footer>
     </dialog>
   </section>;
 }

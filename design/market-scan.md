@@ -3,6 +3,7 @@
 Status: future proposal, not implemented. Keep separate from live interview analysis and
 the saved [meeting report](meeting-reports.md). A report is evidence about the interview;
 market research introduces external claims with different sources and dates.
+Sequenced after the reliable interview and private pilot in the [roadmap](../docs/roadmap.md).
 
 ## Proposed experience
 After the report is ready, an explicit **Start market scan** action opens a short research

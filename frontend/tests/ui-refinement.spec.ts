@@ -1,3 +1,5 @@
+import { selectOption } from "./select";
+import { startTest } from "./prepared";
 import { test, expect } from "@playwright/test";
 import type { Locator } from "@playwright/test";
 
@@ -15,9 +17,10 @@ test("capture, creation and reset dialogs stay centered with accessible controls
   await page.route("**/api/audio-capture", route => route.fulfill({ json: { supported: true, configured: true, helper_ready: true, max_seconds: 120, capture: null } }));
   await page.route("**/api/sessions/*/audio-capture", route => route.fulfill({ status: 503, json: { message: "Synthetic capture unavailable. Retry after checking permissions." } }));
   const workspace = await (await request.post("/api/workspaces", { data: { name: "Dialog audit" } })).json();
-  await request.post(`/api/workspaces/${workspace.id}/meetings`, { data: { title: "Dialog audit meeting" } });
+  const draft = await (await request.post(`/api/workspaces/${workspace.id}/meetings`, { data: { title: "Dialog audit meeting" } })).json();
+  await startTest(request, draft.meeting.id);
   await page.goto("/");
-  await page.getByLabel("Workspace", { exact: true }).selectOption(workspace.id);
+  await selectOption(page.getByLabel("Workspace", { exact: true }), workspace.id);
   const open = page.getByRole("button", { name: "Capture audio", exact: true });
   await open.click();
   const capture = page.getByRole("dialog", { name: "Capture this conversation" });
@@ -42,6 +45,7 @@ test("capture, creation and reset dialogs stay centered with accessible controls
   expect(await capture.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
   await page.screenshot({ path: "test-results/capture-dialog-mobile.png", fullPage: true });
   await page.keyboard.press("Escape");
+  await page.getByRole("button", {name: "Workspace actions", exact: true}).click();
   await page.getByRole("button", { name: "New workspace", exact: true }).click();
   await centered(page.getByRole("dialog", { name: "New workspace" }), 390, 650);
   await page.keyboard.press("Escape");
@@ -78,10 +82,11 @@ test("color proposal is isolated, responsive and previews all meeting surfaces",
 
 test("shared theme keeps meeting controls readable across views, zoom and narrow screens", async ({ page, request }) => {
   const workspace = await (await request.post("/api/workspaces", { data: { name: "Reporting research" } })).json();
-  await request.post(`/api/workspaces/${workspace.id}/meetings`, { data: { title: "Operations and reporting discovery" } });
+  const draft = await (await request.post(`/api/workspaces/${workspace.id}/meetings`, { data: { title: "Operations and reporting discovery" } })).json();
+  await startTest(request, draft.meeting.id);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
-  await page.getByLabel("Workspace", { exact: true }).selectOption(workspace.id);
+  await selectOption(page.getByLabel("Workspace", { exact: true }), workspace.id);
   await expect(page.getByRole("heading", { name: "Operations and reporting discovery" })).toBeVisible();
   await expect(page.locator(".ex-questions").getByLabel("Question frequency")).toBeVisible();
 

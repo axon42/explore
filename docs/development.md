@@ -20,7 +20,7 @@ uv sync --project backend --locked
 bash scripts/dev.sh
 ```
 
-After initial setup, **`uv run --project backend python scripts/dev.py`** starts both servers on Windows, macOS or Linux (`bash scripts/dev.sh` also works on POSIX systems). Open **http://127.0.0.1:5173**. Choose **New session**, optionally enter a title, then **Create workspace → New meeting → Play → Stop**. Ctrl-C stops both processes cleanly. Vite supports frontend hot reload; restart the command after backend/configuration changes.
+After initial setup, **`uv run --project backend python scripts/dev.py`** starts both servers on Windows, macOS or Linux (`bash scripts/dev.sh` also works on POSIX systems). Open **http://127.0.0.1:5173**. Choose **New meeting → save participants and brief → Start interview**. For synthetic playback, enable **Test mode** in the bottom left, choose **Use sample participants → Start test meeting → Play**. **End interview** stops capture and generates the report. Ctrl-C stops both processes cleanly. Vite supports frontend hot reload; restart the command after backend/configuration changes.
 
 This is a **localhost development app**. Both servers bind to `127.0.0.1`; do not expose them publicly or use tunnels. Use exactly one backend process/worker. No Docker or external services are needed.
 
@@ -32,7 +32,7 @@ Copy `.env.example` to `.env`; explicit environment variables override it. Relat
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `DATA_DIR` | `./data` | Directory containing `meetings.sqlite3` and SQLite WAL files |
+| `DATA_DIR` | `./data` | Working `meetings.sqlite3`; durable transcript archive uses sibling `<directory name>-transcripts` |
 | `BACKEND_PORT` | `8000` | FastAPI and internal demo producer port |
 | `FRONTEND_PORT` | `5173` | Vite and allowed browser origin port |
 | `DEMO_ENABLED` | `true` | Enables the development-only demo endpoint/button; set `false` to disable |
@@ -48,7 +48,7 @@ FastAPI listens at `http://127.0.0.1:8000`. Vite forwards `/api/*` and `/api/*` 
 | Endpoint | Behavior |
 | --- | --- |
 | `GET /health` | Health and demo capability |
-| `POST /sessions` | JSON `{ "title": "Planning" }` or `{}`; returns a live session |
+| `POST /sessions` | Retired (409); create a draft meeting and use its prepared start endpoint |
 | `GET /sessions` | Sessions, newest first |
 | `GET /sessions/{id}` | Consistent snapshot: session, current segments, version |
 | `POST /sessions/{id}/stop` | Idempotently stop the session; reject subsequent ingestion |
@@ -140,6 +140,9 @@ Browser tests start their own servers on ports **5174/8001** and persist disposa
 
 Backend tests cover persistence, crash recovery, concurrent duplicates, revisions, invalid payloads, stopped sessions, snapshot ordering, reconnection, bounded queues, origin/token validation, replay-task cancellation, and storage failure retries.
 
+Browser tests use one worker because Test mode and analysis preferences are backend-wide.
+Transcript archive tests use only disposable synthetic databases outside the user's archive.
+
 ## Structure and constraints
 
 ```text
@@ -169,4 +172,16 @@ The one-process ordering lock serializes database operations in worker threads. 
 - **Producer rejected:** verify the Authorization header matches `INGESTION_TOKEN`; create a fresh session if the previous one stopped.
 - **History looks missing:** check `DATA_DIR`. The default is repository-relative even when launched from another directory.
 - **Database errors:** check free disk space and write permissions; stop all other backend processes using this database. Retry unacknowledged events with the same event ID.
-- **Reset local demo history:** stop the servers first and remove only the configured disposable data directory if you no longer need its contents.
+- **Reset local demo history:** use the app's Test mode reset. Never delete the separate transcript archive as MVP cleanup. See [retention and backup](transcript-archive.md).
+
+## Prepared meetings and test tools
+`POST /workspaces/{wid}/meetings` creates a draft with a nullable `session`.
+Save the roster using `PUT /meetings/{mid}/participants` with its revision, then
+`POST /meetings/{mid}/start` with `{revision, mode: "real" | "test"}`. Real mode requires named
+interviewer and customer; test mode requires at least one named person and the Test mode preference.
+The start response is meeting detail; identical concurrent starts return the same session.
+
+`GET/PUT /settings/test-mode` reads/sets `{enabled: boolean}`. This local shared preference is not
+authentication. Test mode does not bypass budgets or convert existing real sessions. Public legacy
+`POST /sessions` is retired with HTTP 409. Replay, injected dialogue, reset and legacy Zoom proof
+are backend-gated. Source family remains fixed for a session, so start a new meeting to change it.

@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "purpose": "Held-out readiness scenarios. Runtime tests verify gates, not model comprehension. Use the text as future provider-evaluation inputs.",
+  "cases": [
+    {"name":"unfinished pharmacy handoff", "text":"Before I explain the stock handoff, let me give you some background about our pharmacy. We have two counters, and the thing that makes it complicated is", "action":"continue", "readiness":"developing", "history_complete":true, "expected_question":false},
+    {"name":"return without detail", "text":"Going back to the supplier returns we discussed earlier, the missing receipt was the reason that order sat on the shelf.", "action":"resume", "readiness":"ready", "history_complete":false, "expected_question":false},
+    {"name":"uncertain pronoun", "text":"That was the other process. It takes just as long, but not for the reason you mentioned.", "action":"uncertain", "readiness":"uncertain", "history_complete":true, "expected_question":false},
+    {"name":"complete concrete incident", "text":"Yesterday I waited three hours for the pharmacist to sign the stock adjustment. Until then I could not release that order.", "action":"continue", "readiness":"ready", "history_complete":true, "expected_question":true},
+    {"name":"negation needs clarification", "text":"No, the stock adjustment did not take three hours. That was the delivery, and I haven't explained how it relates yet.", "action":"continue", "readiness":"developing", "history_complete":true, "expected_question":false}
+  ]
+}
