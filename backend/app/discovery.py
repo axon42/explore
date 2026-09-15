@@ -3,8 +3,8 @@
 import json
 from uuid import uuid4
 
-from . import topic_storage
-from .analysis_state import empty_memory
+from . import spoken_questions, topic_storage
+from .analysis_state import empty_memory, reconcile
 from .models import DomainError
 from .storage import now
 from .topics import normalize_intent
@@ -32,7 +32,10 @@ class Discovery:
     def create_workspace(self, name):
         with self.storage.connection() as db:
             wid = uid()
-            db.execute("INSERT INTO workspaces VALUES (?, ?, ?)", (wid, name.strip(), now()))
+            db.execute(
+                "INSERT INTO workspaces(id,name,created_at) VALUES (?, ?, ?)",
+                (wid, name.strip(), now()),
+            )
             return require(db, "workspaces", wid)
 
     def preferences(self, mid, revision, interval=None, archived=None):
@@ -41,6 +44,10 @@ class Discovery:
             meeting = require(db, "meetings", mid)
             if meeting["context_version"] != revision:
                 raise DomainError("conflict", "Meeting changed. Refresh and retry.")
+            if archived is False and require(db, "workspaces", meeting["workspace_id"])["archived"]:
+                raise DomainError(
+                    "workspace_archived", "Restore the workspace before restoring this meeting."
+                )
             if (
                 archived
                 and db.execute(
@@ -93,7 +100,7 @@ class Discovery:
             ]
 
     def create(self, wid, title):
-        return self.storage.create(title, wid)
+        return self.storage.create(title, wid, draft=True)
 
     def context(self, sid):
         with self.storage.connection() as db:
@@ -153,7 +160,7 @@ class Discovery:
                 ),
                 (mid,),
             ).fetchone()
-            sid = session["id"]
+            sid = session["id"] if session else None
             brief_row = db.execute(
                 "SELECT * FROM meeting_briefs WHERE meeting_id=? ORDER BY revision DESC LIMIT 1",
                 (mid,),
@@ -165,6 +172,7 @@ class Discovery:
                 )
             ]
             for q in questions:
+                q["needs_review"] = not topic_storage.current_attribution(db, sid, q["run_id"])
                 if q["discarded"]:
                     q["status"] = "discarded"
                 q["evidence"] = self.evidence(db, "question", q["id"])
@@ -172,6 +180,8 @@ class Discovery:
                 "SELECT id,input_version,context_version,output_json FROM analysis_runs "
                 "WHERE session_id=? AND json_extract(output_json,'$.stale')=0 "
                 "AND json_extract(output_json,'$.error')='' "
+                "AND COALESCE(json_extract(input_json,'$.attribution_version'),0)="
+                "(SELECT attribution_version FROM sessions WHERE id=analysis_runs.session_id) "
                 "ORDER BY created_at DESC,id DESC LIMIT 1",
                 (sid,),
             ).fetchone()
@@ -186,14 +196,28 @@ class Discovery:
             state_row = db.execute(
                 "SELECT payload FROM analysis_state WHERE session_id=?", (sid,)
             ).fetchone()
-            overview = json.loads(state_row[0]).get("overview", {}) if state_row else {}
+            memory = reconcile(
+                json.loads(state_row[0]) if state_row else empty_memory(),
+                {
+                    "session": dict(session) if session else {},
+                    "segments": [
+                        json.loads(r[0])
+                        for r in db.execute(
+                            "SELECT payload FROM segments WHERE session_id=?", (sid,)
+                        )
+                    ],
+                },
+            )
+            overview = memory.get("overview", {})
             return {
                 "meeting": meeting,
-                "session": dict(session),
+                "session": dict(session) if session else None,
                 "brief": json.loads(brief_row["payload"]),
                 "brief_revision": brief_row["revision"],
                 "questions": questions,
+                "spoken_questions": spoken_questions.view(db, sid),
                 "findings": findings,
+                "workflows": memory.get("workflows", []),
                 "overview": overview.get("summary")
                 or (
                     json.loads(run["output_json"]).get("suggestion", {}).get("summary", "")
@@ -355,6 +379,7 @@ class Discovery:
                 return
             result = run["suggestion"]
             refs = run["source_revisions"]
+            spoken_questions.persist(db, sid, rid, result, context, now())
 
             def link(kind, key, ids):
                 for source in set(ids):
@@ -401,7 +426,7 @@ class Discovery:
             for finding in result.get("findings", []):
                 fid = uid()
                 db.execute(
-                    "INSERT INTO findings VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO findings VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         fid,
                         sid,
@@ -411,6 +436,8 @@ class Discovery:
                         finding["body"],
                         finding["basis"],
                         now(),
+                        finding.get("topic_id", ""),
+                        finding.get("workflow_key", ""),
                     ),
                 )
                 link("finding", fid, finding["source_ids"])
@@ -430,21 +457,13 @@ class Discovery:
             if meeting["archived"]:
                 raise DomainError("conflict", "Restore the meeting before resetting it.")
             self._clear_runs(db, mid)
-            sid = uid()
-            db.execute(
-                (
-                    "INSERT INTO sessions(id,title,status,created_at,meeting_id) VALUES "
-                    "(?,?,'live',?,?)"
-                ),
-                (sid, meeting["title"], now(), mid),
-            )
             db.execute("UPDATE meetings SET updated_at=? WHERE id=?", (now(), mid))
         return self.detail(mid)
 
-    @staticmethod
-    def _clear_runs(db, mid):
+    def _clear_runs(self, db, mid):
         sessions = [r[0] for r in db.execute("SELECT id FROM sessions WHERE meeting_id=?", (mid,))]
         for sid in sessions:
+            self.storage.archive.preserve(db, sid)
             db.execute("DELETE FROM topics WHERE session_id=?", (sid,))
             for kind in ("question", "finding"):
                 db.execute(f"DELETE FROM {kind}_evidence WHERE session_id=?", (sid,))
@@ -456,6 +475,10 @@ class Discovery:
                 (sid,),
             )
             for table in (
+                "spoken_questions",
+                "speaker_assignments",
+                "speaker_spans",
+                "speaker_tracks",
                 "questions",
                 "findings",
                 "analysis_runs",
@@ -467,23 +490,12 @@ class Discovery:
                 db.execute(f"DELETE FROM {table} WHERE session_id=?", (sid,))
             db.execute("DELETE FROM sessions WHERE id=?", (sid,))
 
-    def clear_workspace(self, wid):
-        with self.storage.connection() as db:
-            db.execute("BEGIN IMMEDIATE")
-            require(db, "workspaces", wid)
-            for row in db.execute(
-                "SELECT id FROM meetings WHERE workspace_id=?", (wid,)
-            ).fetchall():
-                mid = row[0]
-                self._clear_runs(db, mid)
-                db.execute(
-                    (
-                        "DELETE FROM note_revisions WHERE note_id IN (SELECT id FROM notes WHERE "
-                        "meeting_id=?)"
-                    ),
-                    (mid,),
-                )
-                for table in ("notes", "meeting_briefs"):
-                    db.execute(f"DELETE FROM {table} WHERE meeting_id=?", (mid,))
-                db.execute("DELETE FROM meetings WHERE id=?", (mid,))
-        return {"status": "cleared"}
+    def _delete_meeting(self, db, mid):
+        self._clear_runs(db, mid)
+        db.execute(
+            "DELETE FROM note_revisions WHERE note_id IN (SELECT id FROM notes WHERE meeting_id=?)",
+            (mid,),
+        )
+        for table in ("notes", "meeting_briefs"):
+            db.execute(f"DELETE FROM {table} WHERE meeting_id=?", (mid,))
+        db.execute("DELETE FROM meetings WHERE id=?", (mid,))

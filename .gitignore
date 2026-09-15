@@ -2,6 +2,7 @@
 .env.*
 !.env.example
 data/
+data-transcripts/
 *.sqlite3
 *.sqlite3-*
 .venv/

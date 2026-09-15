@@ -13,13 +13,13 @@ export function useMeeting(id: string, refresh: number) {
       try {
         const options = { signal: abort.signal };
         const detail = await api<Detail>(`/meetings/${id}`, options);
-        const [snapshot, experiment] = await Promise.all([
+        const [snapshot, experiment] = detail.session ? await Promise.all([
           api<{ segments: Segment[] }>(
             `/sessions/${detail.session.id}`,
             options,
           ),
           api<Experiment>(`/sessions/${detail.session.id}/experiment`, options),
-        ]);
+        ]) : [{ segments: [] }, null];
         if (active) {
           setBundle({ detail, segments: snapshot.segments, experiment });
           setError("");

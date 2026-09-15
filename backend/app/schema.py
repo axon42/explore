@@ -2,6 +2,8 @@
 
 import json
 
+from .speakers import migrate as migrate_speakers
+from .spoken_questions import DDL as SPOKEN_DDL
 from .topic_storage import DDL as TOPIC_DDL
 
 DDL = [
@@ -160,6 +162,73 @@ def migrate(db, timestamp):
             "revision INTEGER NOT NULL CHECK(revision>=1))"
         )
         db.execute("INSERT INTO schema_migrations VALUES (5, ?)", (timestamp,))
+    if not db.execute("SELECT 1 FROM schema_migrations WHERE version=6").fetchone():
+        if not db.in_transaction:
+            db.execute("BEGIN IMMEDIATE")
+        db.execute(
+            "ALTER TABLE sessions ADD COLUMN mode TEXT NOT NULL DEFAULT 'legacy' "
+            "CHECK(mode IN ('legacy','real','test'))"
+        )
+        db.execute("ALTER TABLE sessions ADD COLUMN roster_snapshot TEXT NOT NULL DEFAULT '[]'")
+        db.execute(
+            "CREATE TABLE runtime_preferences(id INTEGER PRIMARY KEY CHECK(id=1), "
+            "test_mode INTEGER NOT NULL DEFAULT 0 CHECK(test_mode IN (0,1)))"
+        )
+        db.execute("INSERT INTO runtime_preferences VALUES(1,0)")
+        db.execute(
+            "CREATE TABLE session_producers(session_id TEXT PRIMARY KEY REFERENCES "
+            "sessions(id) ON DELETE CASCADE, kind TEXT NOT NULL)"
+        )
+        db.execute(
+            "CREATE TABLE capture_runs(id TEXT PRIMARY KEY, session_id TEXT NOT NULL "
+            "REFERENCES sessions(id) ON DELETE CASCADE, payload TEXT NOT NULL, "
+            "updated_at TEXT NOT NULL)"
+        )
+        db.execute("ALTER TABLE findings ADD COLUMN topic_id TEXT NOT NULL DEFAULT ''")
+        db.execute("ALTER TABLE findings ADD COLUMN workflow_key TEXT NOT NULL DEFAULT ''")
+        db.execute("INSERT INTO schema_migrations VALUES (6, ?)", (timestamp,))
+    if not db.execute("SELECT 1 FROM schema_migrations WHERE version=7").fetchone():
+        if not db.in_transaction:
+            db.execute("BEGIN IMMEDIATE")
+        migrate_speakers(db, timestamp)
+        db.execute("INSERT INTO schema_migrations VALUES (7, ?)", (timestamp,))
+    if not db.execute("SELECT 1 FROM schema_migrations WHERE version=8").fetchone():
+        if not db.in_transaction:
+            db.execute("BEGIN IMMEDIATE")
+        db.execute(
+            "ALTER TABLE workspaces ADD COLUMN archived INTEGER NOT NULL DEFAULT 0 "
+            "CHECK(archived IN (0,1))"
+        )
+        db.execute(
+            "ALTER TABLE workspaces ADD COLUMN revision INTEGER NOT NULL DEFAULT 0 "
+            "CHECK(revision>=0)"
+        )
+        db.execute("INSERT INTO schema_migrations VALUES (8, ?)", (timestamp,))
+    if not db.execute("SELECT 1 FROM schema_migrations WHERE version=9").fetchone():
+        if not db.in_transaction:
+            db.execute("BEGIN IMMEDIATE")
+        for statement in SPOKEN_DDL:
+            db.execute(statement)
+        db.execute("INSERT INTO schema_migrations VALUES (9, ?)", (timestamp,))
+    if not db.execute("SELECT 1 FROM schema_migrations WHERE version=10").fetchone():
+        if not db.in_transaction:
+            db.execute("BEGIN IMMEDIATE")
+        db.execute("""CREATE TABLE developer_traces(id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+            job_id TEXT NOT NULL, model TEXT NOT NULL, created_at TEXT NOT NULL,
+            outcome TEXT NOT NULL, metadata TEXT NOT NULL, request_body TEXT, response_body TEXT)
+            """)
+        db.execute(
+            "CREATE INDEX developer_traces_session ON developer_traces(session_id,created_at)"
+        )
+        db.execute("INSERT INTO schema_migrations VALUES(10,?)", (timestamp,))
+    db.execute("UPDATE developer_traces SET outcome='interrupted' WHERE outcome='running'")
+    db.execute(
+        "UPDATE capture_runs SET payload=json_set(payload, '$.status', 'failed', "
+        "'$.code','capture_interrupted','$.error','Capture interrupted by server restart.') "
+        "WHERE json_extract(payload,'$.status') IN ('starting','capturing','stopping')"
+    )
+    db.execute("DELETE FROM session_producers")
     db.execute(
         "UPDATE report_jobs SET status='failed', error='Interrupted; retry finalization.' "
         "WHERE status IN ('pending','generating')"

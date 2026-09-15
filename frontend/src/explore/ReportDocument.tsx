@@ -28,6 +28,7 @@ function Items({ section, items, segments, onEvidence }: {
     <div>{item.status && <span className={`ex-record-label ex-question-status ${item.status}`}>{item.status}</span>}
       {item.basis && <span className="ex-record-label">{item.basis === "inferred" ? "Hypothesis" : item.basis}</span>}
       {section === "evidence_notes" && <span className="ex-record-label">Human note</span>}
+      {section === "spoken_questions" && <span className="ex-record-label">{item.speaker_name} · {item.interview_role}{item.superseded ? " · Earlier transcript revision" : " · Detected"}</span>}
       <p>{item.text || item.body || "Not established"}</p></div>
     <Sources evidence={item.evidence || referencedEvidence(item.sources, segments)} onEvidence={onEvidence} />
   </li>)}</ul>;
@@ -131,7 +132,7 @@ export function ReportDocument({ report }: { report: MeetingReport }) {
     {evidence && <div className="ex-report-evidence" role="region" aria-label="Report evidence" tabIndex={-1} ref={evidencePanel} onKeyDown={e => { if (e.key === "Escape") { e.stopPropagation(); closeEvidence(); } }}>
       <header><strong>{evidence.speaker_name || evidence.speaker_id} · {timestamp(evidence.start_ms)} · Revision {evidence.revision}{evidence.superseded ? " · Earlier evidence" : ""}</strong>
         <button aria-label="Close report evidence" onClick={closeEvidence}><X size={16} /></button></header>
-      <blockquote>{evidence.text}</blockquote><small>Evidence saved with this report</small>
+      {evidence.attributions?.length ? evidence.attributions.map(a => <blockquote key={a.index}><strong>{a.name} · {a.status === "confirmed" ? a.interview_role : "Unassigned"}</strong><br />{Array.from(evidence.text).slice(a.start, a.end).join("")}</blockquote>) : <blockquote>{evidence.text}</blockquote>}<small>Evidence saved with this report</small>
     </div>}
   </article>;
 }

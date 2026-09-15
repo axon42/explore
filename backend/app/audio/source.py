@@ -19,6 +19,7 @@ class AudioFrame:
     channel: str
     sequence: int
     pcm: bytes
+    input_samples: int | None = None
 
 
 class AudioSource(Protocol):
@@ -31,6 +32,7 @@ HELPER_ERRORS = {
     "microphone_permission",
     "screen_permission",
     "audio_device",
+    "audio_device_changed",
     "audio_format",
     "audio_overflow",
     "system_capture",
@@ -116,7 +118,10 @@ class MacOSSource:
             ):
                 raise ValueError
             self.sequences[channel] += 1
-            return AudioFrame(channel, sequence, pcm)
+            count = message.get("input_samples")
+            if count is not None and (type(count) is not int or not 0 <= count <= 1600):
+                raise ValueError
+            return AudioFrame(channel, sequence, pcm, count)
         except (KeyError, TypeError, ValueError) as exc:
             raise AudioError("helper_protocol") from exc
 

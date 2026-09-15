@@ -2,28 +2,42 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Plus,
   Folder,
-  MessageSquare,
-  Trash2,
   X,
 } from "lucide-react";
 import { api } from "../types";
 import type { Detail, Meeting, Workspace } from "./data";
+import { Developer } from "./Developer";
+import { Archives } from "./Archives";
 import { MeetingView } from "./MeetingView";
-import { AnalysisSettings } from "./AnalysisSettings";
-import { Logo } from "./Logo";
+import { Sidebar } from "./Sidebar";
 import "./theme.css";
 import "./explore.css";
 import "./records.css";
+import "./sidebar.css";
+import "./select.css";
 export default function Explore() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [wid, setWid] = useState("");
   const [mid, setMid] = useState("");
-  const [showArchived, setShowArchived] = useState(false);
+  const [search, setSearch] = useState("");
+  const [testMode, setTestMode] = useState(false);
+  const [modeBusy, setModeBusy] = useState(false);
+  useEffect(() => {
+    const abort = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    async function load() {
+      try { const mode = await api<{ enabled: boolean }>("/settings/test-mode", { signal: abort.signal }); if (!abort.signal.aborted) setTestMode(mode.enabled); }
+      catch { /* Mutations remain gated on the backend if status is unavailable. */ }
+      if (!abort.signal.aborted) timer = setTimeout(() => void load(), 1500);
+    }
+    void load(); return () => { abort.abort(); clearTimeout(timer); };
+  }, []);
+  const [page, setPage] = useState<"meetings" | "archives" | "developer">("meetings");
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [name, setName] = useState("");
-  const [modal, setModal] = useState<"workspace" | "meeting" | "clear">(
+  const [modal, setModal] = useState<"workspace" | "meeting" | "clear" | "archive-workspace">(
     "meeting",
   );
   const dialog = useRef<HTMLDialogElement>(null);
@@ -36,32 +50,25 @@ export default function Explore() {
     if (!wid) return;
     const items = await api<Meeting[]>(`/workspaces/${wid}/meetings`);
     if (activeWorkspace.current !== wid) return;
-    setMeetings(items);
+    const visible = items.filter(m => !m.archived);
+    setMeetings(visible);
     setMid((current) =>
-      items.some((m) => m.id === current) ? current : items[0]?.id || "",
+      visible.some((m) => m.id === current) ? current : visible[0]?.id || "",
     );
   }, [wid]);
+  const loadWorkspaces = useCallback(async () => {
+    const items = await api<Workspace[]>("/workspaces");
+    setWorkspaces(items);
+    setWid(current => items.find(w => !w.archived && w.id === current)?.id || items.find(w => !w.archived)?.id || "");
+  }, []);
   useEffect(() => {
     let active = true;
-    api<Workspace[]>("/workspaces")
-      .then((items) => {
-        if (active) {
-          setWorkspaces(items);
-          setWid(
-            items.find(
-              (w) => w.id === localStorage.getItem("explore.workspace"),
-            )?.id ||
-              items[0]?.id ||
-              "",
-          );
-        }
-      })
-      .catch((e) => {
-        if (active) setError(e.message);
-      });
-    return () => {
-      active = false;
-    };
+    api<Workspace[]>("/workspaces").then(items => {
+      if (!active) return;
+      setWorkspaces(items);
+      setWid(items.find(w => !w.archived && w.id === localStorage.getItem("explore.workspace"))?.id || items.find(w => !w.archived)?.id || "");
+    }).catch(e => { if (active) setError(e.message); });
+    return () => { active = false; };
   }, []);
   useEffect(() => {
     let active = true;
@@ -69,7 +76,8 @@ export default function Explore() {
     setMid("");
     if (wid)
       api<Meeting[]>(`/workspaces/${wid}/meetings`)
-        .then((items) => {
+        .then((rows) => {
+          const items = rows.filter(m => !m.archived);
           if (active) {
             setMeetings(items);
             setMid(
@@ -92,7 +100,11 @@ export default function Explore() {
     setModal(kind);
     setName("");
     setError("");
-    dialog.current?.showModal();
+    requestAnimationFrame(() => {
+      dialog.current?.showModal();
+      const target = kind === "clear" || kind === "archive-workspace" ? "footer button" : "input";
+      dialog.current?.querySelector<HTMLElement>(target)?.focus();
+    });
   }
   async function submit() {
     setBusy(true);
@@ -112,14 +124,18 @@ export default function Explore() {
           body: JSON.stringify({ title: name }),
         });
         const items = await api<Meeting[]>(`/workspaces/${wid}/meetings`);
-        setMeetings(items);
+        setMeetings(items.filter(m => !m.archived));
         setMid(item.meeting.id);
         localStorage.setItem("explore.meeting", item.meeting.id);
+      } else if (modal === "archive-workspace") {
+        await api(`/workspaces/${wid}/archive`, { method: "PATCH", body: JSON.stringify({ revision: workspace?.revision, archived: true }) });
+        await loadWorkspaces();
       } else {
-        await api(`/workspaces/${wid}/meetings`, { method: "DELETE" });
+        await api(`/workspaces/${wid}/meetings/archive`, { method: "POST" });
         setMeetings([]);
         setMid("");
       }
+      setPage("meetings");
       dialog.current?.close();
     } catch (e) {
       setError((e as Error).message);
@@ -129,75 +145,16 @@ export default function Explore() {
   }
   return (
     <div className="explore">
-      <aside className="ex-sidebar">
-        <a className="ex-brand" href="/">
-          <Logo />
-          Explore
-        </a>
-        <label className="ex-label" htmlFor="workspace">
-          Workspace
-        </label>
-        <div className="ex-workspace-select">
-          <select
-            id="workspace"
-            value={wid}
-            onChange={(e) => {
-              localStorage.setItem("explore.workspace", e.target.value);
-              setWid(e.target.value);
-            }}
-          >
-            {workspaces.map((w) => (
-              <option key={w.id} value={w.id}>
-                {w.name}
-              </option>
-            ))}
-          </select>
-          <button aria-label="New workspace" onClick={() => open("workspace")}>
-            <Plus size={17} />
-          </button>
-        </div>
-        <div className="ex-nav-heading">
-          <span>
-            <Folder size={14} />
-            Meetings
-          </span>
-          <button
-            aria-label="New meeting"
-            disabled={!wid}
-            onClick={() => open("meeting")}
-          >
-            <Plus size={16} />
-          </button>
-        </div>
-        <button className="ex-archive-toggle" aria-pressed={showArchived} onClick={() => setShowArchived(!showArchived)}>{showArchived ? "Show active meetings" : "Show archived meetings"}</button>
-        <nav aria-label="Meetings">
-          {meetings.filter((m) => !!m.archived === showArchived).map((m) => (
-            <button
-              key={m.id}
-              className={mid === m.id ? "selected" : ""}
-              aria-current={mid === m.id ? "page" : undefined}
-              onClick={() => {
-                localStorage.setItem("explore.meeting", m.id);
-                setMid(m.id);
-              }}
-            >
-              <MessageSquare size={15} />
-              <span>{m.title}</span>
-            </button>
-          ))}
-        </nav>
-        <div className="ex-sidebar-bottom">
-          <AnalysisSettings />
-          <span>Local workspace</span>
-          <button
-            disabled={!wid || !meetings.length}
-            onClick={() => open("clear")}
-          >
-            <Trash2 size={13} />
-            Clear meetings
-          </button>
-        </div>
-      </aside>
+      <Sidebar workspaces={workspaces} wid={wid} meetings={meetings} mid={mid} page={page}
+        search={search} testMode={testMode} modeBusy={modeBusy} onSearch={setSearch} onPage={setPage} onOpen={open}
+        onWorkspace={id => { localStorage.setItem("explore.workspace", id); setPage("meetings"); setSearch(""); setWid(id); }}
+        onMeeting={id => { localStorage.setItem("explore.meeting", id); setMid(id); setPage("meetings"); }}
+        onTestMode={async () => {
+          setModeBusy(true);
+          try { const mode = await api<{ enabled: boolean }>("/settings/test-mode", { method: "PUT", body: JSON.stringify({ enabled: !testMode }) }); setTestMode(mode.enabled); }
+          catch (e) { setError((e as Error).message); }
+          finally { setModeBusy(false); }
+        }} />
       <main className="ex-main">
         {error && !dialog.current?.open && (
           <div className="ex-error" role="alert">
@@ -205,12 +162,13 @@ export default function Explore() {
             <button onClick={() => location.reload()}>Reload</button>
           </div>
         )}
-        {mid ? (
+        {page === "developer" ? <Developer /> : page === "archives" ? <Archives workspaces={workspaces} testMode={testMode} onChanged={async () => { await loadWorkspaces(); await loadMeetings(); }} /> : mid ? (
           <MeetingView
             key={mid}
             id={mid}
             workspace={workspace?.name || ""}
             onChanged={loadMeetings}
+            testMode={testMode}
           />
         ) : (
           <div className="ex-empty">
@@ -248,7 +206,7 @@ export default function Explore() {
                 ? "New workspace"
                 : modal === "meeting"
                   ? "New meeting"
-                  : "Clear workspace meetings?"}
+                  : modal === "clear" ? "Archive all meetings?" : "Archive workspace?"}
             </h2>
             <button
               type="button"
@@ -259,12 +217,8 @@ export default function Explore() {
               <X size={19} />
             </button>
           </header>
-          {modal === "clear" ? (
-            <p>
-              Delete all meetings, transcripts, questions, briefs and notes in{" "}
-              <strong>{workspace?.name}</strong>. Other workspaces are kept.
-              This cannot be undone.
-            </p>
+          {modal === "clear" || modal === "archive-workspace" ? (
+            <p>{modal === "clear" ? "Move all meetings in" : "Move"} <strong>{workspace?.name}</strong> {modal === "clear" ? "to Archives?" : "and its meetings to Archives?"} You can restore them at any time. End active meetings first.</p>
           ) : (
             <label>
               Name
@@ -292,14 +246,14 @@ export default function Explore() {
               Cancel
             </button>
             <button
-              className={modal === "clear" ? "ex-danger" : "ex-primary"}
-              disabled={busy || (modal !== "clear" && !name.trim())}
+              className="ex-primary"
+              disabled={busy || ((modal === "workspace" || modal === "meeting") && !name.trim())}
             >
               {busy
                 ? "Saving…"
                 : modal === "clear"
-                  ? "Delete meetings"
-                  : "Create"}
+                  ? "Archive meetings"
+                  : modal === "archive-workspace" ? "Archive workspace" : "Create"}
             </button>
           </footer>
         </form>

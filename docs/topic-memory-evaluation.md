@@ -30,3 +30,15 @@ expected topic identity, allowed question windows and exact supporting evidence.
 authorized bounded Gemini evaluation and set acceptance thresholds for premature/duplicate
 questions, grounding, resume accuracy and latency from that baseline. Report waiting/provider/UI
 latency separately, plus calls and provider tokens per minute; compare under the same cost cap.
+
+## Readiness and workflow relationship cases
+`backend/fixtures/evaluation/readiness-v1.json` adds held-out pharmacy/stock-handoff examples:
+unfinished setup, returning without hydrated history, ambiguous pronouns, a complete incident and
+negation. Deterministic tests verify the runtime readiness gates using declared proposals. They do
+**not** score Gemini's ability to infer those proposals from speech. A future provider comparison
+should score those inputs blind for appropriate waiting, specific follow-ups, correct returns,
+duplicate intent, exact evidence and supported workflow relationships, while recording latency/cost.
+
+Workflow-link tests reject cross-topic and missing workflow targets and retain the valid unassigned
+case. Topic routing, corrections, frequency, discarded intents and failed-batch retries remain in the
+existing regression suite. No model calls or user interview data are used by automated tests.

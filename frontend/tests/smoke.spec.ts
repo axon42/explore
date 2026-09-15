@@ -1,7 +1,9 @@
+import { prepareInUI } from "./prepared";
 import { test, expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 async function create(page: Page) {
   await page.goto("/");
+  await page.getByRole("button", {name: "Workspace actions", exact: true}).click();
   await page
     .getByRole("button", { name: "New workspace", exact: true })
     .click();
@@ -19,6 +21,7 @@ async function create(page: Page) {
   await expect(
     page.getByRole("heading", { name: "Agency discovery" }),
   ).toBeVisible();
+  await prepareInUI(page);
   await expect(
     page.getByRole("button", { name: "Next turn", exact: true }),
   ).toBeEnabled();
@@ -112,11 +115,14 @@ test("reset during replay starts clean and preserves brief and notes", async ({
     page.locator(".ex-transcript-list article").first(),
   ).toBeVisible();
   await page.getByRole("button", { name: "Reset test", exact: true }).click();
+  await expect(page.getByRole("dialog")).toContainText("separate transcript archive");
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "Reset test", exact: true })
     .click();
   await expect(page.locator(".ex-transcript-list article")).toHaveCount(0);
+  await expect(page.getByText("Draft", {exact:true})).toBeVisible();
+  await page.getByRole("button", { name: "Start test meeting", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "Play", exact: true }),
   ).toBeEnabled();
@@ -149,11 +155,7 @@ test("two viewers see the same questions and updated status", async ({
 test("local interview completes with participants, AI notes and downloadable report", async ({ page }) => {
   await create(page);
   await page.getByRole("button", { name: "Brief", exact: true }).click();
-  await page.getByRole("button", { name: "Add participant", exact: true }).click();
-  await page.getByLabel("Speaker ID", { exact: true }).fill("cofounder");
-  await page.locator(".ex-participants").getByLabel("Name", { exact: true }).fill("Alex Test");
-  await page.getByLabel("Job role", { exact: true }).fill("Founder");
-  await page.getByLabel("Interview role", { exact: true }).selectOption("interviewer");
+  await page.getByLabel("Job role", { exact: true }).first().fill("Founder");
   await page.getByRole("button", { name: "Save participants", exact: true }).click();
   await expect(page.getByText("Participants saved", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Interview", exact: true }).click();
@@ -180,7 +182,7 @@ test("local interview completes with participants, AI notes and downloadable rep
   expect(report.evidence[0].text).toContain("Last Friday");
   await page.screenshot({ path: "test-results/explore-report.png", fullPage: true });
   await page.getByRole("button", { name: "Brief", exact: true }).click();
-  await page.locator(".ex-participants").getByLabel("Name", { exact: true }).fill("Alex Updated");
+  await page.locator(".ex-participants").getByLabel("Name", { exact: true }).first().fill("Alex Updated");
   await page.getByRole("button", { name: "Save participants", exact: true }).click();
   await expect(page.getByText("Participants saved", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Report", exact: true }).click();

@@ -3,7 +3,9 @@ import hmac
 import json
 import logging
 import sqlite3
+import time
 from contextlib import asynccontextmanager, suppress
+from uuid import uuid4
 
 from anyio import CancelScope
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
@@ -14,7 +16,10 @@ from .audio.capture import AudioCapture
 from .audio.capture import router as audio_router
 from .broadcast import Broadcaster
 from .config import Settings
+from .developer_access import LocalAdmin
+from .developer_access import router as developer_router
 from .discovery_api import router
+from .lifecycle import Lifecycle
 from .models import CreateSession, DomainError, TranscriptEvent
 from .pipeline import FIXTURE, Pipeline, PlaybackCommand
 from .replay import replay
@@ -33,11 +38,12 @@ def log(event: str, **fields):
 
 def create_app(settings: Settings | None = None):
     settings = settings or Settings()
-    storage = Storage(settings.data_dir / "meetings.sqlite3")
+    storage = Storage(settings.data_dir / "meetings.sqlite3", settings.transcript_archive_path)
     broker = Broadcaster(settings.subscriber_queue_size)
     service = Service(storage, broker)
     pipeline = Pipeline(service, settings)
     service.on_final = pipeline.notify
+    admin = LocalAdmin(settings.data_dir)
     capture = ZoomCapture(service, settings)
     audio_capture = AudioCapture(service, settings)
     replays: dict[str, asyncio.Task] = {}
@@ -46,8 +52,31 @@ def create_app(settings: Settings | None = None):
     @asynccontextmanager
     async def lifespan(app):
         recovered = await asyncio.to_thread(storage.initialize)
+        try:
+            key = await asyncio.to_thread(admin.initialize)
+            pipeline.diagnostics.secrets.append(key)
+        except (OSError, RuntimeError):
+            log("developer_access_unavailable")
+        try:
+            await asyncio.to_thread(pipeline.diagnostics.events.initialize, settings.data_dir)
+        except OSError:
+            log("diagnostic_log_unavailable")
+        logger.addHandler(pipeline.diagnostics.events)
+
+        async def maintain_diagnostics():
+            while True:
+                try:
+                    await service.read(pipeline.diagnostics.maintain)
+                except Exception:
+                    log("diagnostics_cleanup_failed")
+                await asyncio.sleep(60)
+
+        diagnostic_maintenance = asyncio.create_task(maintain_diagnostics())
+        audio_capture.state = await service.read(audio_capture.audit.last_capture)
         log("startup", interrupted_sessions=recovered)
         yield
+        diagnostic_maintenance.cancel()
+        await asyncio.gather(diagnostic_maintenance, return_exceptions=True)
         await audio_capture.stop()
         await capture.close()
         await pipeline.close()
@@ -59,6 +88,9 @@ def create_app(settings: Settings | None = None):
                 await socket.close(code=1001)
         await service.read(storage_stop_live)
         log("shutdown")
+        logger.removeHandler(pipeline.diagnostics.events)
+        if pipeline.diagnostics.events.file:
+            pipeline.diagnostics.events.file.close()
 
     def storage_stop_live():
         for session in storage.list_sessions():
@@ -70,6 +102,7 @@ def create_app(settings: Settings | None = None):
     app.state.pipeline = pipeline
     app.state.service = service
     app.state.replays = replays
+    app.state.developer_admin = admin
 
     @app.middleware("http")
     async def local_requests(request: Request, call_next):
@@ -80,7 +113,19 @@ def create_app(settings: Settings | None = None):
             return JSONResponse({"code": "invalid_host", "message": "Local hosts only"}, 403)
         if origin and origin not in settings.origins:
             return JSONResponse({"code": "invalid_origin", "message": "Origin not allowed"}, 403)
-        return await call_next(request)
+        request_id, started = str(uuid4()), time.monotonic()
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        if request.url.path.startswith("/developer"):
+            response.headers["Cache-Control"] = "no-store"
+        if response.status_code >= 400:
+            log(
+                "http_request_failed",
+                request_id=request_id,
+                status=response.status_code,
+                elapsed_ms=round((time.monotonic() - started) * 1000),
+            )
+        return response
 
     @app.exception_handler(DomainError)
     async def domain_error(request: Request, exc: DomainError):
@@ -93,9 +138,11 @@ def create_app(settings: Settings | None = None):
 
     @app.post("/sessions", status_code=201)
     async def create(body: CreateSession):
-        session = await service.read(storage.create, body.title)
-        log("session_created", session_id=session["id"])
-        return session
+        raise DomainError(
+            "meeting_preparation_required",
+            "Create a meeting, save participants, then use its Start interview action.",
+            409,
+        )
 
     @app.get("/sessions")
     async def sessions():
@@ -136,13 +183,18 @@ def create_app(settings: Settings | None = None):
 
     @app.post("/sessions/{session_id}/playback")
     async def playback(session_id: str, command: PlaybackCommand):
+        await service.read(Lifecycle(storage).test_access, session_id)
+        await service.read(Lifecycle(storage).claim, session_id, "test")
         return await pipeline.command(session_id, command)
 
     @app.post("/sessions/{session_id}/inject")
     async def inject(session_id: str, event: TranscriptEvent):
+        await service.read(Lifecycle(storage).test_access, session_id)
+        await service.read(Lifecycle(storage).claim, session_id, "test")
         return await service.ingest(session_id, event)
 
     app.include_router(router(service, pipeline, stop_session))
+    app.include_router(developer_router(admin, pipeline.diagnostics, service))
     app.include_router(zoom_proof_router(settings, capture))
     app.include_router(audio_router(audio_capture, settings))
 
@@ -167,6 +219,8 @@ def create_app(settings: Settings | None = None):
     async def start_demo(session_id: str):
         if not settings.demo_enabled:
             raise DomainError("demo_disabled", "Demo mode is disabled", 404)
+        await service.read(Lifecycle(storage).test_access, session_id)
+        await service.read(Lifecycle(storage).claim, session_id, "external")
         async with service.lock:
             snapshot = await asyncio.to_thread(storage.snapshot, session_id)
             if snapshot["session"]["status"] != "live":
@@ -213,6 +267,7 @@ def create_app(settings: Settings | None = None):
                     if len(raw) > 65536:
                         raise DomainError("payload_too_large", "Event exceeds 64 KiB", 413)
                     event = TranscriptEvent.model_validate_json(raw)
+                    await service.read(Lifecycle(storage).claim, session_id, "external")
                     await ws.send_json(await service.ingest(session_id, event))
                 except ValidationError as exc:
                     # Pydantic's default errors include input; omit it and arbitrary ctx.

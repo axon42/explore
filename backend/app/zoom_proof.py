@@ -10,6 +10,7 @@ from fastapi import APIRouter, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from .config import Settings
+from .lifecycle import Lifecycle
 from .models import DomainError
 
 
@@ -57,6 +58,10 @@ def router(settings: Settings, capture=None) -> APIRouter:
         async with mutation:
             if body.generation != generation:
                 raise DomainError("zoom_stale", "This test was disconnected. Reload.")
+            await capture.service.read(
+                Lifecycle(capture.service.storage).test_access,
+                capture.binding["sid"] if capture.binding else None,
+            )
             await capture.arm()
         return capture.view()
 
@@ -80,6 +85,14 @@ def router(settings: Settings, capture=None) -> APIRouter:
             raise DomainError("invalid_origin", "A local browser origin is required", 403)
         if not settings.zoom_proof_enabled:
             raise DomainError("zoom_disabled", "Enable ZOOM_PROOF_ENABLED for this test", 409)
+        if capture:
+            await capture.service.read(
+                Lifecycle(capture.service.storage).test_access, body.session_id
+            )
+            if body.session_id:
+                await capture.service.read(
+                    Lifecycle(capture.service.storage).claim, body.session_id, "zoom"
+                )
         key = settings.zoom_video_sdk_key.get_secret_value()
         secret = settings.zoom_video_sdk_secret.get_secret_value()
         if not key or not secret:

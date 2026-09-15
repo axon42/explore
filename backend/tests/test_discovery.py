@@ -30,6 +30,9 @@ def setup_meeting(client):
     detail = client.post(
         f"/workspaces/{workspace['id']}/meetings", json={"title": "Discovery"}
     ).json()
+    from tests.prepared import start
+
+    detail = start(client, detail["meeting"]["id"])
     return workspace["id"], detail["meeting"]["id"], detail["session"]["id"]
 
 
@@ -117,13 +120,20 @@ def test_reset_replaces_run_and_clear_is_workspace_scoped(tmp_path):
         client.post(f"/sessions/{sid}/playback", json={"action": "play", "speed": 10})
         fresh = client.post(f"/meetings/{mid}/reset", json={"session_id": sid}).json()
         assert client.post(f"/meetings/{mid}/reset", json={"session_id": sid}).status_code == 409
-        assert fresh["session"]["id"] != sid
+        assert fresh["session"] is None
+        from tests.prepared import start
+
+        fresh = start(client, mid)
         assert fresh["meeting"]["id"] == mid and fresh["notes"][0]["body"] == "Keep this context"
         assert client.post(f"/sessions/{sid}/inject", json=payload()).status_code == 404
         time.sleep(0.8)
         assert client.get(f"/sessions/{fresh['session']['id']}").json()["segments"] == []
+        assert client.delete(f"/workspaces/{wid}/meetings").status_code == 409
+        client.app.state.service.storage.stop(fresh["session"]["id"])
         assert client.delete(f"/workspaces/{wid}/meetings").status_code == 200
-        assert client.get(f"/meetings/{mid}").status_code == 404
+        archived = client.get(f"/meetings/{mid}").json()
+        assert archived["meeting"]["archived"] == 1
+        assert archived["notes"][0]["body"] == "Keep this context"
         assert len(client.get(f"/workspaces/{other_wid}/meetings").json()) == 1
         assert client.get(f"/meetings/{other_mid}").status_code == 200
 

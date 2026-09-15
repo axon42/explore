@@ -87,6 +87,10 @@ Keep the existing provider adapter and local source of truth. Verify a real Gemi
 - One active urgent call and one coalesced pending batch. Silence creates no repeated calls.
 
 ## Context envelope
+Implemented [speaker attribution](speaker-attribution.md) adds confirmed person/role and exact speaker
+spans to dialogue context. Unknown voices remain unassigned; roster presence alone does not make
+their speech customer evidence. Attribution corrections require reconciliation even without new text.
+
 1. Trusted application policy (Mom Test, evidence rules, output contract).
 2. Human meeting brief and explicitly included notes, labeled separately from customer evidence.
 3. Small structured meeting state: workflow, pains, frequency, impact, workarounds, spend, decision roles, hypotheses, contradictions, open gaps, topic coverage. Every factual entry cites source revisions.
@@ -159,3 +163,46 @@ Sources: [OpenAI Agents API](https://developers.openai.com/api/docs/guides/agent
   remains necessary to tune completeness and question quality.
 - Discard is reversible and retains source evidence, status history and deduplication.
   Discarded questions are excluded from active progress; restoring returns them to queued.
+
+## Confirmed attribution — 2026-09-14
+The provider receives exact resolved character spans, confirmed participant IDs/roles and a
+session `attribution_version`; raw adapter metadata is excluded to avoid duplicate context tokens.
+`attributed_to` and `speaker_evidence` are validated against supplied final spans. Unknown speech
+can support neutral context/questions but cannot be assigned a person merely from the roster.
+Roster or assignment edits increment context/attribution versions. In-flight older proposals are
+rejected. Reconciliation clears derived memory/coverage and revisits earlier evidence in the same
+bounded batches, including metadata-only changes. Previous AI runs and human question states remain.
+Old questions are marked for review, topic summaries are withheld until updated, and reports become
+outdated. Budget exhaustion stays explicit; a correction does not bypass provider limits or pacing.
+Free-text interpretation still needs semantic evaluation against customer denials and founder opinions.
+
+## Spoken-question observations — 2026-09-14
+Prompt `discovery-v11` adds optional verbatim question observations to both strategies. They use
+existing batches and provider/cost limits, independent of suggested-question cooldown. Exact source
+range validation and deduplication run before persistence; optional invalid quotes are omitted with
+a safe diagnostic count. Human suggestion statuses remain unchanged. Names/roles are resolved from
+confirmed source spans, never from model output. See [question-history design](archives-and-question-history.md)
+for correction history, schema, limits and evaluation gaps.
+
+## Timeout diagnostics and adaptive batching — 2026-09-14
+Each attempt carries a diagnostic request ID distinct from its stable job ID. Provider errors retain
+safe connect/read/write/pool, HTTP deadline or total-deadline codes. Returned token usage survives
+structured/semantic rejection; no usage is invented when a timeout yields no response.
+
+After a timeout the session's persisted `batch_reduction` increments up to 3. Subsequent batches use
+24K new-text characters / 60 fragments divided by 2, 4 or 8. A first whole segment may exceed that
+reduced budget; it is never truncated. The reduced fragment cap also allows enough tiny fragments
+to reach the existing 35-word readiness gate (still at most 60 fragments). Recent context, meeting memory and immutable evidence stay
+intact. Failure leaves coverage unchanged. Only the next ordinary scheduled/manual attempt uses the
+smaller batch; no hidden retry, extra provider call, model swap or increased call limit is added.
+This is a conservative mitigation, not a guarantee against provider/network delays. Fixed prompt/schema
+overhead still matters. Evaluate quality/latency before changing thinking or adding another model.
+
+Opt-in model bodies, timing, validation outcomes and safe application events are inspectable through
+the backend-protected [Developer view](observability.md). No raw request/response is put into normal logs.
+
+
+## Planned reliability follow-up — 2026-09-15
+See [interview reliability and analysis quality](analysis-reliability.md) for capture/utterance
+assembly, scoped diagnostics, durable analysis jobs and multi-topic evaluation. These are proposals;
+the existing implementation and limits remain unchanged.

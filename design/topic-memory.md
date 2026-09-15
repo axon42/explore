@@ -215,3 +215,41 @@ focus changes via `continue` continue to fail validation.
 Verification: one synthetic request reproduced the error; one post-fix request saved a topic
 and claim (one call each, 1,989 and 1,947 total tokens respectively). No private interview was
 sent. This verifies first-topic integration, not semantic readiness/question-quality accuracy.
+
+## Missing routing fields repair — 2026-09-12
+`topic_routing_incomplete` means a non-uncertain action lacks its focus ID or routing citations.
+A synthetic provider response reproduced the rejection despite an accepted focus update already
+citing its evidence. The previous wire schema allowed routing fields to be omitted, and the
+shared no-question instruction did not distinguish top-level from nested `source_ids`.
+
+Prompt v8 separates question evidence from topic evidence. The Gemini schema requires explicit
+topic fields; an `anyOf` branch requires at least one routing citation for continue/switch/resume
+while permitting an evidence-free uncertain result. These are documented
+[Gemini JSON Schema features](https://github.com/googleapis/googleapis/blob/master/google/ai/generativelanguage/v1beta/generative_service.proto).
+Local validation remains authoritative; no extra model calls or automatic retries were added.
+
+The pure routing normalizer handles two redundant omissions before validation: `continue` may
+repeat a known current focus, and missing routing citations may reuse the one accepted update
+whose ID exactly matches the declared focus. Never infer a switch/resume target, use question
+citations, union unrelated updates, overwrite invalid supplied references or reuse old evidence.
+All original evidence, ownership, provisional-state and readiness checks still run atomically.
+Unrecoverable output remains an error with coverage unchanged; explicit retry processes the saved
+transcript. Tests cover successful questions, memory-only batches, ambiguous/foreign references,
+retry and idempotency. The reported error class is reproduced; the user's discarded raw provider
+response is unavailable, and live Gemini quality still requires a separate check.
+
+Verification: 138 backend tests and five analysis/context/report browser tests passed with
+mocked providers and disposable storage; Ruff checks passed. Restarted the local server at
+5173 after confirming no live sessions/capture; startup reported zero interrupted sessions.
+No real Gemini calls or transcript reprocessing were triggered by this repair.
+
+Attribution changes (migration 7) invalidate the current topic readiness and derived memory.
+Persisted topic summaries compare their owning run's attribution version with the session before
+being displayed or reused. The bounded catalog resolves retrieved source spans under current human
+assignments; old topic/run provenance remains available for review.
+
+
+## Planned reliability follow-up — 2026-09-15
+See [interview reliability and analysis quality](analysis-reliability.md) for capture/utterance
+assembly, scoped diagnostics, durable analysis jobs and multi-topic evaluation. These are proposals;
+the existing implementation and limits remain unchanged.

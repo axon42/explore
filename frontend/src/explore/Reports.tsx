@@ -1,3 +1,4 @@
+import { Select } from "./Select";
 import { useEffect, useState } from "react";
 import { api } from "../types";
 import type { MeetingReport } from "./analysisData";
@@ -75,9 +76,9 @@ export function Reports({ mid, sid, stopped, onChanged }: {
     {(error || list?.job.error || loadError) && <p className="ex-record-notice" role="alert">{error || list?.job.error || "Report status could not refresh. Retrying…"}</p>}
     {selectedReport && <>
       <div className="ex-report-toolbar ex-report-version"><h3>Report {selectedReport.revision}{selectedReport.outdated ? " · Outdated" : ""}</h3>
-        {list && list.reports.length > 1 && <label>Revision <select aria-label="Report revision" value={selectedReport.id} onChange={e => setSelected(e.target.value)}>
+        {list && list.reports.length > 1 && <label>Revision <Select aria-label="Report revision" value={selectedReport.id} onValueChange={value => setSelected(value)}>
           {list.reports.map(r => <option value={r.id} key={r.id}>Report {r.revision}{r.outdated ? " · Outdated" : ""}</option>)}
-        </select></label>}
+        </Select></label>}
         <div className="ex-record-actions">{["markdown", "json"].map(format => <button key={format} disabled={busy} onClick={() => void download(`reports/${selectedReport.id}?format=${format}`, `explore-report-${selectedReport.revision}.${format === "markdown" ? "md" : "json"}`)}>Download {format === "markdown" ? "Markdown" : "JSON"}</button>)}</div>
       </div>
       {selectedReport.outdated && <p className="ex-record-notice">This saved revision predates changes to the meeting. Generate a new report to include them.</p>}

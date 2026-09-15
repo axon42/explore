@@ -23,13 +23,15 @@ from .analysis_state import (
     validate_proposal,
 )
 from .concurrency import blocking
+from .diagnostics import ACTIVE_TRACE, Diagnostics
 from .discovery import Discovery
 from .models import DomainError, TranscriptEvent
 from .overview import OverviewStrategy
+from .spoken_questions import accepted as accepted_spoken
 from .topics import (
     add_topic_context,
     advance_topic_state,
-    normalize_initial_topic,
+    normalize_topic_routing,
     question_ready,
     resolve_topics,
     validate_topics,
@@ -61,6 +63,7 @@ class Pipeline:
         self.states, self.locks, self.wakes, self.workers, self.players = {}, {}, {}, {}, {}
         self.trigger = TriggerPolicy()
         self.context_builder = ContextBuilder()
+        self.diagnostics = Diagnostics(service.storage, settings)
         self.strategy = AnalysisStrategy()
         self.overview_strategy = OverviewStrategy()
         self.report_workers = {}
@@ -238,7 +241,11 @@ class Pipeline:
             meeting_context = await self.service.read(self.discovery.context, sid)
             memory = reconcile(await self.service.read(self.discovery.memory, sid), snapshot)
             context = self.context_builder.build(
-                snapshot, meeting_context, memory, state["objective"]
+                snapshot,
+                meeting_context,
+                memory,
+                state["objective"],
+                state.get("batch_reduction", 0),
             )
             if context is None or not context["segments"]:
                 return False
@@ -301,15 +308,35 @@ class Pipeline:
             state["calls"] += 1
             await self.save(sid)
         validation_code = ""
+        provider_code = ""
         usage = {}
+        trace = await self.service.read(
+            self.diagnostics.begin,
+            sid,
+            context,
+            self.settings.gemini_model
+            if self.settings.analysis_provider == "gemini"
+            else "simulated",
+            self.settings.analysis_timeout_seconds,
+        )
+        trace_token = ACTIVE_TRACE.set(trace)
         try:
             result, usage = await asyncio.wait_for(
                 self.strategy.analyze(self.provider, context),
                 self.settings.analysis_timeout_seconds,
             )
+            if trace.capture and self.settings.analysis_provider == "mock":
+                trace.response = result.model_dump()
             validate_proposal(result, context)
+            result, rejected_spoken = accepted_spoken(result, context)
+            if rejected_spoken:
+                logging.getLogger("meeting").warning(
+                    json.dumps(
+                        {"event": "spoken_question_quotes_rejected", "count": rejected_spoken}
+                    )
+                )
             if topic_mode:
-                result = normalize_initial_topic(result, context)
+                result = normalize_topic_routing(result, context)
                 validate_topics(result, context)
                 ready = question_ready(result, context)
                 result = resolve_topics(result, context)
@@ -317,12 +344,16 @@ class Pipeline:
                     result = result.model_copy(update={"question": "", "source_ids": []})
             error = ""
         except asyncio.CancelledError:
+            await self.service.read(self.diagnostics.save, trace, "cancelled", "cancelled")
             raise
         except ProviderError as exc:
             result, usage = None, {}
             error = str(exc)
+            provider_code = exc.code
         except TimeoutError:
             result, usage = None, {}
+            provider_code = "analysis_deadline"
+            trace.metadata["error_stage"] = "analysis_deadline"
             error = (
                 f"Analysis exceeded the {self.settings.analysis_timeout_seconds}-second deadline."
             )
@@ -339,16 +370,29 @@ class Pipeline:
                     }
                 )
             )
-        except Exception:
+        except Exception as exc:
             result, usage = None, {}
+            provider_code = "analysis_unexpected"
+            trace.metadata["error_type"] = type(exc).__name__
             error = "Analysis failed. Check configuration or quota; retry or deliver another turn."
+        finally:
+            ACTIVE_TRACE.reset(trace_token)
+        if not usage:
+            usage = trace.metadata.get("usage", {})
         async with self.lock(sid):
             async with self.service.lock:
+                if provider_code.startswith("provider_timeout_") or provider_code in {
+                    "provider_deadline",
+                    "analysis_deadline",
+                }:
+                    state["batch_reduction"] = min(3, state.get("batch_reduction", 0) + 1)
                 current = await blocking(self.service.storage.snapshot, sid)
                 latest_context = await blocking(self.discovery.context, sid)
                 revisions = {s["segment_id"]: s["revision"] for s in current["segments"]}
                 stale = (
                     (current["session"]["status"] != "live" and not closing)
+                    or current["session"].get("attribution_version", 0)
+                    != context.get("attribution_version", 0)
                     or any(
                         revisions.get(s["segment_id"]) != s["revision"] for s in context["segments"]
                     )
@@ -388,6 +432,8 @@ class Pipeline:
                     "stale": stale,
                     "error": error,
                     "validation_code": validation_code,
+                    "provider_code": provider_code,
+                    "request_id": trace.id,
                     "suggestion": result.model_dump() if result else None,
                 }
                 state["runs"].append(run)
@@ -406,6 +452,26 @@ class Pipeline:
                     updated,
                 )
                 await blocking(self.service.storage.save_experiment, sid, state)
+                await blocking(
+                    self.diagnostics.save,
+                    trace,
+                    "stale" if stale else "error" if error else "ok",
+                    provider_code or validation_code,
+                    usage,
+                )
+                logging.getLogger("meeting").info(
+                    json.dumps(
+                        {
+                            "event": "analysis_completed",
+                            "request_id": trace.id,
+                            "session_id": sid,
+                            "job_id": context["job_id"],
+                            "outcome": "stale" if stale else "error" if error else "ok",
+                            "code": provider_code or validation_code,
+                            "elapsed_ms": run["latency_ms"],
+                        }
+                    )
+                )
                 return updated is not None
 
     async def request_report(self, sid):

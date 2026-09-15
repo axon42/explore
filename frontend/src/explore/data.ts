@@ -1,6 +1,7 @@
 import type { Segment, Session } from "../types";
-export type Workspace = { id: string; name: string };
+export type Workspace = { id: string; name: string; archived: number; revision: number };
 export type Meeting = {
+  created_at?: string;
   id: string;
   workspace_id: string;
   title: string;
@@ -37,6 +38,7 @@ export const briefLabels: Record<keyof Brief, string> = {
 };
 export type Evidence = Segment & { superseded: boolean };
 export type Question = {
+  needs_review?: boolean;
   id: string;
   text: string;
   rationale: string;
@@ -45,6 +47,8 @@ export type Question = {
   evidence: Evidence[];
 };
 export type Finding = {
+  topic_id: string;
+  workflow_key: string;
   id: string;
   kind: "workflow" | "gap" | "opportunity";
   title: string;
@@ -58,13 +62,19 @@ export type Note = {
   revision: number;
   updated_at: string;
 };
+export type SpokenQuestion = {
+  id: string; text: string; speaker_name: string; interview_role: string;
+  participant_id: string | null; start_ms: number; superseded: boolean; evidence: Evidence[];
+};
 export type Detail = {
   meeting: Meeting;
-  session: Session;
+  session: (Session & { mode?: "real" | "test" | "legacy" }) | null;
   brief: Partial<Brief>;
   brief_revision: number;
   questions: Question[];
+  spoken_questions?: SpokenQuestion[];
   findings: Finding[];
+  workflows: { key: string; topic_id: string; title: string }[];
   overview: string;
   overview_input_version: number | null;
   overview_context_version: number | null;
@@ -86,5 +96,5 @@ export type Experiment = {
 export type Bundle = {
   detail: Detail;
   segments: Segment[];
-  experiment: Experiment;
+  experiment: Experiment | null;
 };

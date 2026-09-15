@@ -19,10 +19,10 @@ def test_preferences_discard_archive_and_migration(tmp_path):
         _, mid, sid = setup_meeting(client)
         _, other, _ = setup_meeting(client)
         pref = f"/meetings/{mid}/preferences"
-        assert client.patch(pref, json={"revision": 0, "archived": True}).status_code == 409
-        assert client.patch(pref, json={"revision": 0, "question_interval": 7}).status_code == 422
-        assert client.patch(pref, json={"revision": 0, "question_interval": 120}).status_code == 200
-        assert client.patch(pref, json={"revision": 0, "question_interval": 30}).status_code == 409
+        assert client.patch(pref, json={"revision": 1, "archived": True}).status_code == 409
+        assert client.patch(pref, json={"revision": 1, "question_interval": 7}).status_code == 422
+        assert client.patch(pref, json={"revision": 1, "question_interval": 120}).status_code == 200
+        assert client.patch(pref, json={"revision": 1, "question_interval": 30}).status_code == 409
         client.post(
             f"/sessions/{sid}/inject",
             json=payload(

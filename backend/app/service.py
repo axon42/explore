@@ -46,6 +46,13 @@ class Service:
                 return ack
 
     @finish_on_cancel
+    async def refresh(self, session_id):
+        with CancelScope(shield=True):
+            async with self.lock:
+                snapshot = await asyncio.to_thread(self.storage.snapshot, session_id)
+                self.broadcaster.publish(session_id, snapshot)
+
+    @finish_on_cancel
     async def stop(self, session_id):
         with CancelScope(shield=True):
             async with self.lock:

@@ -20,6 +20,8 @@ export type RecordItem = {
   status?: string;
   name?: string;
   speaker_id?: string;
+  speaker_name?: string;
+  superseded?: boolean;
   interview_role?: string;
   job_role?: string;
   brief?: Partial<Brief>;

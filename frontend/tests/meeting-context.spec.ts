@@ -1,3 +1,5 @@
+import { selectOption } from "./select";
+import { startTest, type StartedDetail } from "./prepared";
 import { test, expect } from "@playwright/test";
 import type { APIRequestContext, Page } from "@playwright/test";
 import type { Detail } from "../src/explore/data";
@@ -6,9 +8,10 @@ import type { Segment } from "../src/types";
 
 async function create(page: Page, request: APIRequestContext) {
   const workspace = await (await request.post("/api/workspaces", { data: { name: "Thread view test" } })).json();
-  const detail: Detail = await (await request.post(`/api/workspaces/${workspace.id}/meetings`, { data: { title: "Operations discovery" } })).json();
+  const draft: Detail = await (await request.post(`/api/workspaces/${workspace.id}/meetings`, { data: { title: "Operations discovery" } })).json();
+  const detail = await startTest(request, draft.meeting.id);
   await page.goto("/");
-  await page.getByLabel("Workspace", { exact: true }).selectOption(workspace.id);
+  await selectOption(page.getByLabel("Workspace", { exact: true }), workspace.id);
   await expect(page.getByRole("heading", { name: "Operations discovery", exact: true })).toBeVisible();
   return detail;
 }
@@ -65,7 +68,7 @@ test("live threads evolve, resume identities, preserve inspection and link exact
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
-function report(detail: Detail): MeetingReport {
+function report(detail: StartedDetail): MeetingReport {
   const source = segment("workflow-pass", 'We export the report, check it, and ask finance for approval. <img src=x onerror="window.unsafe=true">');
   const thread = topic(detail.session.id, "topic-reporting", "Operational reporting", source);
   const claim = { text: "Access approval delays the weekly report.", basis: "observed", sources: { [source.segment_id]: 1 } };
@@ -121,7 +124,7 @@ test("saved report renders safe diagrams, grouped notes, evidence, revisions and
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: "test-results/meeting-report-mobile.png", fullPage: true });
-  await page.getByLabel("Report revision").selectOption("old");
+  await selectOption(page.getByLabel("Report revision"), "old");
   await expect(doc.getByText("Simulated analysis · Revision 1")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Report 1 · Outdated" })).toBeVisible();
   await expect(doc.locator(".ex-report-topics")).toHaveCount(0);
@@ -143,9 +146,9 @@ test("report loading fails visibly and retries; unmounted revisions cannot overw
   const gate = new Promise<void>(resolve => { release = resolve; });
   let requested = false;
   await page.route(`**/api/meetings/${mid}/reports/old`, async route => { requested = true; await gate; await route.fulfill({ json: { ...saved, revision: 1 } }).catch(() => {}); });
-  await page.getByLabel("Report revision").selectOption("old");
+  await selectOption(page.getByLabel("Report revision"), "old");
   await expect.poll(() => requested).toBe(true);
-  await page.getByLabel("Report revision").selectOption("new");
+  await selectOption(page.getByLabel("Report revision"), "new");
   await expect(page.getByText("Simulated analysis · Revision 2")).toBeVisible();
   release();
   await expect(page.getByText("Simulated analysis · Revision 1")).toHaveCount(0);

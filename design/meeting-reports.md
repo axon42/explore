@@ -7,14 +7,14 @@ human participant mappings, immutable final reports and Mermaid source generatio
 ## Durable evidence
 Retain the entire transcript received and accepted by Explore, including provisional text, final text and accepted corrections, with speaker IDs, timestamps and exact revision references. Duplicate/rejected deliveries are not additional spoken content. A bounded LLM context never bounds storage retention. Unreceived speech cannot be recovered; any known ingestion gaps must be disclosed.
 
-Current storage already retains accepted segment revisions; older legacy revisions discarded before migration cannot be reconstructed. Explicit test reset/delete remains destructive within its documented scope, rather than silently becoming an archive operation. Communicate this when implementing export/report controls; ordinary stop or report generation never deletes evidence.
+Current storage retains accepted segment revisions; older legacy revisions discarded before migration cannot be reconstructed. As of 2026-09-14, [the independent transcript archive](transcript-retention.md) also retains accepted revisions through test reset/permanent working deletion. Clear meetings now archives and preserves working records. Ordinary stop or report generation never deletes evidence.
 
 Provide two transcript exports: readable Markdown with speaker/time labels, and versioned JSON containing current segments, accepted revision history, participant mappings and stable evidence IDs. Include meeting/session identity and export/source versions so external processing can trace quotations. Clearly distinguish provisional, current and superseded text. Exports are user-initiated and scoped to the selected meeting; no external upload is implied.
 
 ## Shared structure
 Use one versioned section schema for meeting notes and final reports. Keep the same ordering across meetings, using “Not established” for missing information. Live AI notes fill it incrementally; a final report completes it through the closing transcript checkpoint. Human notes may remain free-form within those sections and retain their authorship/revision history. Do not rewrite or reclassify existing notes without a deliberate migration and reviewable mapping.
 
-1. **People and meeting:** interviewer name(s), interview role and job role first; customer/other participants and roles, workspace, title, date and duration. Store stable participant-to-speaker mappings. User-supplied identities or explicit self-introductions are sources; do not infer a job role from speaking style. Allow unknown speakers until identified.
+1. **People and meeting:** interviewer name(s), interview role and job role first; customer/other participants and roles, workspace, title, date and duration. Store stable participant-to-speaker mappings. The implemented [speaker attribution layer](speaker-attribution.md) requires human confirmation of person/role mappings; self-introductions are supporting text, not automatic confirmation. Do not infer a job role from speaking style. Allow unknown speakers until identified. Reports retain their attribution version and become outdated when relevant mappings change.
 2. **Purpose:** interview objective, customer/vertical context and hypotheses from the brief, labeled as pre-meeting input.
 3. **Discussion summary:** concise account of what was learned, without promoting hypotheses to findings.
 4. **Workflows:** trigger, actor, steps, tools, handoffs, decisions and outcome; include supported frequency/timing and diagrams where useful.
@@ -22,8 +22,9 @@ Use one versioned section schema for meeting notes and final reports. Keep the s
 6. **Current alternatives:** tools, workarounds, spending and previous attempts to solve the issue.
 7. **Opportunities and uncertainty:** automation hypotheses, supporting/contradicting evidence, unknowns and further validation needed. Interest is not purchase commitment.
 8. **Question progress:** retained questions, asked/answered status, answer evidence, dismissed/covered items and unresolved topics. Status respects the chosen human-confirmation policy.
-9. **Next steps:** explicit commitments with owner/date when stated; AI-recommended follow-ups labeled separately. No invented owners or dates.
-10. **Evidence and human notes:** source-linked details/quotes, original human contributions and transcript export references. Include coverage, report revision and generation provenance.
+9. **Questions asked in conversation:** detected verbatim questions, exact source evidence, confirmed speaker/role where available and earlier-revision labels.
+10. **Next steps:** explicit commitments with owner/date when stated; AI-recommended follow-ups labeled separately. No invented owners or dates.
+11. **Evidence and human notes:** source-linked details/quotes, original human contributions and transcript export references. Include coverage, report revision and generation provenance.
 
 The report begins with participant details and a concise summary, followed by the structured detail. “All details” means preserving substantive evidence and access to the complete transcript, not claiming that a prose summary reproduces every utterance.
 
@@ -61,3 +62,36 @@ See [topic memory](topic-memory.md#notes-overview-and-final-report). Keep the ex
 order, group accepted findings within sections by topic, and cover paused as well as active
 topics. Topic membership alone must not imply workflow sequence or causality. Reports containing topics use schema/strategy version 2. Existing immutable reports remain
 unchanged. Live notes expose additive topic groups; the browser renders these groups in notes and the saved report reader.
+
+## Attribution snapshots — 2026-09-14
+Current transcript JSON uses schema 2 and includes raw accepted revisions, resolved speaker spans,
+assignment history and roster revisions. Markdown retains raw text and adds person/role/span labels.
+Saved reports include their attribution version and history; their evidence viewer uses the same
+resolved spans as live dialogue. Correcting a person/role never rewrites an older saved report.
+Regeneration requires the full transcript to be reconciled under the new attribution version.
+
+## Spoken questions in reports — 2026-09-14
+New reports (`evidence-report-v3`) add **Questions asked in conversation**, separate from suggestion
+progress. Entries contain detected verbatim wording, exact revision evidence, confirmed speaker/role
+where available and superseded flags. Markdown and JSON retain these references; the in-app reader
+uses the existing safe text/evidence components. Existing saved reports are not rewritten. See
+[extraction and archive contract](archives-and-question-history.md).
+
+
+## Later: post-meeting AI review — planned 2026-09-15
+After live processing drains (or clearly identifies unresolved gaps), a separate budgeted review
+can revisit the full preserved transcript and confirmed participant roles. Use bounded transcript
+passes plus a consolidation pass with a coverage manifest, rather than silently truncating a long
+meeting. Check missing topics, incorrect associations, contradictions, unsupported claims, omitted
+spoken questions and workflow order against exact source revisions.
+
+Save proposed changes to generated notes and reports as a new revision with evidence and a review
+diff. Preserve the original report, transcript, human-authored notes and confirmed attribution;
+uncertainty stays explicit. This cannot recover misheard/missing words without additional evidence.
+Interrupted/failed review must remain resumable and must not replace the last valid report. An
+unavailable model or exhausted budget shows review pending/blocked, not verified completion.
+
+This is a future roadmap item, not another always-on live agent. The explicit request makes it a
+planned end-of-meeting feature; automatic enablement, model and separate budget must be decided
+before implementation. Market research remains a separate task and cannot become meeting evidence.
+See [roadmap](../docs/roadmap.md) and [reliability design](analysis-reliability.md).

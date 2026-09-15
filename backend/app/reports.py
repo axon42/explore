@@ -8,6 +8,8 @@ from uuid import uuid4
 from .analysis_state import empty_memory, reconcile
 from .discovery import Discovery, require
 from .models import DomainError
+from .speakers import assignments, identify, invalidate, resolved
+from .spoken_questions import view as spoken_view
 from .storage import now
 from .topic_storage import read_topics
 
@@ -20,6 +22,7 @@ SECTIONS = (
     ("alternatives", "Current alternatives"),
     ("opportunities", "Opportunities and uncertainty"),
     ("questions", "Question progress"),
+    ("spoken_questions", "Questions asked in conversation"),
     ("next_steps", "Next steps"),
     ("evidence_notes", "Evidence and human notes"),
 )
@@ -57,6 +60,7 @@ class ReportStrategy:
             sections[claim["section"]].append(claim)
         sections["summary"] = memory["claims"][:8]
         sections["questions"] = source["questions"]
+        sections["spoken_questions"] = source.get("spoken_questions", [])
         sections["evidence_notes"] = source["notes"]
         topics = source.get("topics", [])
         topic_titles = {t["id"]: t["title"] for t in topics}
@@ -68,7 +72,7 @@ class ReportStrategy:
             "duration_ms": max((s["end_ms"] for s in source["segments"]), default=0),
             "provider": provider,
             "simulated": provider == "mock",
-            "strategy_version": "evidence-report-v2" if topics else "evidence-report-v1",
+            "strategy_version": "evidence-report-v3",
             "generated_at": now(),
             "sections": [
                 {
@@ -94,6 +98,9 @@ class ReportStrategy:
             "workflows": [{**w, "mermaid": diagram(w)} for w in memory["workflows"]],
             "question_matches": memory["matches"],
             "evidence": source["segments"],
+            "attribution_version": source["session"].get("attribution_version", 0),
+            "speaker_assignments": source.get("speaker_assignments", []),
+            "roster_history": source.get("roster_history", []),
             "coverage": {
                 "final_segments": sum(s["is_final"] for s in source["segments"]),
                 "processed_segments": len(memory["coverage"]),
@@ -123,6 +130,7 @@ class Reports:
                 if current != revision:
                     raise DomainError("conflict", "Participants changed. Reload before saving.")
                 current += 1
+                participants = identify(db, mid, participants)
                 db.execute(
                     "INSERT INTO meeting_participants VALUES (?, ?, ?) "
                     "ON CONFLICT(meeting_id) DO UPDATE SET revision=excluded.revision, "
@@ -132,6 +140,15 @@ class Reports:
                 db.execute(
                     "UPDATE meetings SET context_version=context_version+1 WHERE id=?", (mid,)
                 )
+                db.execute(
+                    "INSERT INTO participant_rosters VALUES (?,?,?,?)",
+                    (mid, current, json.dumps(participants), now()),
+                )
+                for session in db.execute(
+                    "SELECT id FROM sessions WHERE meeting_id=?", (mid,)
+                ).fetchall():
+                    invalidate(db, session[0])
+                    self.storage.archive.context(db, session[0])
             else:
                 participants = json.loads(row["payload"]) if row else []
             return {"revision": current, "participants": participants}
@@ -145,8 +162,12 @@ class Reports:
             for r in db.execute("SELECT payload FROM segments WHERE session_id=?", (sid,))
         ]
         segments.sort(key=lambda s: (s["start_ms"], s["segment_id"]))
+        segments = resolved(db, sid, segments)
         row = db.execute("SELECT payload FROM analysis_state WHERE session_id=?", (sid,)).fetchone()
-        memory = reconcile(json.loads(row[0]) if row else empty_memory(), {"segments": segments})
+        memory = reconcile(
+            json.loads(row[0]) if row else empty_memory(),
+            {"segments": segments, "session": session},
+        )
         row = db.execute(
             "SELECT payload FROM meeting_participants WHERE meeting_id=?", (mid,)
         ).fetchone()
@@ -190,11 +211,18 @@ class Reports:
             if link:
                 question.update(dict(link))
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "exported_at": now(),
             "meeting": meeting,
             "session": session,
             "segments": segments,
+            "speaker_assignments": assignments(db, sid),
+            "roster_history": [
+                dict(r)
+                for r in db.execute(
+                    "SELECT * FROM participant_rosters WHERE meeting_id=? ORDER BY revision", (mid,)
+                )
+            ],
             "memory": memory,
             "topics": read_topics(db, sid, segments, memory.get("topic_state", {})),
             "participants": participants,
@@ -206,6 +234,7 @@ class Reports:
                 )
             ],
             "questions": questions,
+            "spoken_questions": spoken_view(db, sid),
             "analysis_provenance": [
                 dict(r)
                 for r in db.execute(
@@ -219,15 +248,27 @@ class Reports:
 
     def current_sid(self, db, mid):
         require(db, "meetings", mid)
-        return db.execute(
+        row = db.execute(
             "SELECT id FROM sessions WHERE meeting_id=? ORDER BY created_at DESC,id DESC LIMIT 1",
             (mid,),
-        ).fetchone()[0]
+        ).fetchone()
+        return row[0] if row else None
 
     def export(self, mid):
         with self.storage.connection() as db:
             db.execute("BEGIN")
             sid = self.current_sid(db, mid)
+            if sid is None:
+                return {
+                    "meeting": require(db, "meetings", mid),
+                    "session": None,
+                    "segments": [],
+                    "revisions": [],
+                    "topics": [],
+                    "notes": [],
+                    "state": {},
+                    "simulated": False,
+                }
             source = self.snapshot(db, sid)
             current = {s["segment_id"]: s["revision"] for s in source["segments"]}
             revisions = [
@@ -251,6 +292,17 @@ class Reports:
         with self.storage.connection() as db:
             db.execute("BEGIN")
             sid = self.current_sid(db, mid)
+            if sid is None:
+                return {
+                    "meeting": require(db, "meetings", mid),
+                    "session": None,
+                    "segments": [],
+                    "revisions": [],
+                    "topics": [],
+                    "notes": [],
+                    "state": {},
+                    "simulated": False,
+                }
             source = self.snapshot(db, sid)
             provider = (
                 source["analysis_provenance"][-1]["provider"]
@@ -318,6 +370,8 @@ class Reports:
             db.execute("BEGIN")
             sid = self.current_sid(db, mid)
             meeting = require(db, "meetings", mid)
+            if sid is None:
+                return {"job": {"status": "not_started", "error": ""}, "reports": []}
             session = require(db, "sessions", sid)
             job = db.execute(
                 "SELECT status,error FROM report_jobs WHERE session_id=?", (sid,)
@@ -353,6 +407,8 @@ class Reports:
 
 
 def transcript_markdown(source):
+    if source["session"] is None:
+        return f"# {safe_text(source['meeting']['title'])}\n\nNo transcript yet.\n"
     lines = [
         f"# {safe_text(source['meeting']['title'])} — transcript",
         f"Session: {safe_text(source['session']['id'])}",
@@ -369,6 +425,12 @@ def transcript_markdown(source):
                 safe_text(s["text"]),
             ]
         )
+        for span in s.get("attributions", []):
+            lines.append(
+                f"- {safe_text(span['name'])} · {safe_text(span['interview_role'])} "
+                f"({span['status']}; span {span['index']}): "
+                f"{safe_text(s['text'][span['start'] : span['end']])}"
+            )
     lines.extend(["", "## Accepted revision history"])
     for s in source["revisions"]:
         lines.append(
@@ -429,6 +491,18 @@ def report_markdown(report):
                     )
             elif section["key"] == "evidence_notes":
                 lines.append(f"- Human note: {safe_text(item['body'])}")
+            elif section["key"] == "spoken_questions":
+                refs = {s["segment_id"]: s["revision"] for s in item["evidence"]}
+                label = (
+                    "Earlier transcript revision"
+                    if item["superseded"]
+                    else "Detected spoken question"
+                )
+                lines.append(
+                    f"- {label} — {safe_text(item['speaker_name'])} "
+                    f"({safe_text(item['interview_role'])}): {safe_text(item['text'])} "
+                    f"({citations(refs)})"
+                )
             elif section["key"] == "questions":
                 refs = {s["segment_id"]: s["revision"] for s in item["evidence"]}
                 lines.append(f"- [{item['status']}] {safe_text(item['text'])} ({citations(refs)})")
@@ -472,7 +546,7 @@ def report_markdown(report):
     evidence = {(s["segment_id"], s["revision"]): s for s in report["evidence"]}
     # Preserve older question premises as well as current transcript revisions.
     for section in report["sections"]:
-        if section["key"] == "questions":
+        if section["key"] in ("questions", "spoken_questions"):
             for q in section["items"]:
                 evidence.update({(s["segment_id"], s["revision"]): s for s in q["evidence"]})
     for s in evidence.values():

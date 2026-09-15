@@ -5,7 +5,7 @@ The main application uses the approved Gumloop-inspired light direction: white c
 - Keep workspace → meetings navigation and the existing meeting tabs. Transcript and retained questions sit side by side on desktop, with stacked panels on smaller screens.
 - Blue evidence highlights connect suggestions to their source. Workflow, gap and opportunity labels accompany their colors; color alone does not imply a relationship.
 - Display queued, asked and answered counts. These describe question status, not a percentage of interview completion.
-- Use existing React components, CSS and icons without new dependencies, remote fonts or animation libraries. Preserve focus indicators, native forms, dialogs and reduced-motion behavior.
+- Use existing React components, CSS and icons; avoid remote fonts and animation libraries. Shared dropdowns use the focused Radix Select primitive for cross-browser menus and keyboard behavior; see [dropdown decisions](dropdowns.md). Preserve focus indicators, form submission, dialogs and reduced-motion behavior.
 - Preserve brief, notes, replay, injection and scoped reset behavior. Video controls and workflow relationships require separate integration work. Brief now includes explicit participant mappings; Notes exposes generated sections; Report connects finalization and Markdown/JSON downloads.
 
 Reference: [approved interview layout](mockups/video-interview.svg). The conferencing area remains deferred until its integration is ready.
@@ -41,7 +41,8 @@ Future: [post-meeting market scan](market-scan.md), independently triggered and 
 
 
 ## Analysis mode
-The bottom-left sidebar exposes **Standard** and **Discussion threads** in a native select.
+The bottom-left **Analysis mode** row shows the current choice and opens the shared dropdown for
+**Standard** and **Discussion threads**. See the approved [sidebar layout](sidebar.md).
 The choice is app-wide and saved on the backend, rather than browser-local, so all viewers use
 the same mode. It survives restart and meeting reset. Provider credentials and budgets stay
 server-controlled. Save errors and conflicts are visible; older polls cannot undo a save.

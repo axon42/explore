@@ -2,6 +2,8 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./tests",
+  // Tests share backend-wide Test mode and analysis settings.
+  workers: 1,
   timeout: 45000,
   use: {
     channel: process.env.PLAYWRIGHT_CHANNEL || undefined,

@@ -12,12 +12,13 @@ The current workspace data model and CRUD/reset contract are documented in [data
 - `Analyzer` protocol: replace provider without changing replay, persistence or UI. Mock is deliberately simplistic and explicitly labeled. Gemini uses backend-only HTTP, structured JSON and source validation.
 - Context and scheduling: persisted structured memory, bounded unprocessed/recent dialogue, a one-second idle/five-second maximum collection policy, and one active analysis call. Compatible new speech no longer invalidates committed state; corrected sources and changed human context do. See [analysis and reports](analysis.md) for exact limits and contracts.
 - Persistence: experiments store replay state/call counts; relational analysis runs and revisioned evidence retain provenance. Migration 2 adds state checkpoints, participants and report records without replacing source data.
-- Stop closes ingestion and schedules report finalization; reset/clear cancel work and remove only their documented scope. Pause only pauses playback.
+- Stop closes ingestion and schedules report finalization; test reset cancels work and removes its documented working-data scope. Clear meetings archives without deletion and requires sessions to be ended. Pause only pauses playback.
 - UI: the connected workspace polls transcript and meeting state every 800 ms. Multiple tabs share the backend state. Provider timing does not measure browser rendering or STT.
 
 ## Browser endpoints
 - `GET /fixtures`: scenario metadata, without future dialogue.
 - `GET /sessions/{id}/experiment`: replay state and exportable run records.
+- Test tools require enabled Test mode and a test/legacy session. Real interviews reject these endpoints.
 - `POST /sessions/{id}/playback`: `{ "action": "play|pause|next|configure", "speed": 1, "objective": "..." }`. Objective changes are allowed before dialogue starts. Speeds 0.25–10; timing changes apply at the next scheduled interval. Next pauses automatic playback.
 - `POST /sessions/{id}/inject`: the existing complete TranscriptEvent schema. Retry ambiguous failures with the same event ID. The built-in form sends a new finalized segment.
 - Existing ingestion WebSocket and transcript endpoints remain compatible. The legacy `/demo` smoke test remains available through the API, but the UI uses the interview fixture.
@@ -60,3 +61,7 @@ transitions never contain step labels. This fixes a mismatch found in the real m
 The key remains backend-only. No billing settings were changed; keep the AI Studio project on Free
 Tier without linked billing for the user's current zero-spend testing plan. No model fallback or
 automatic retry is enabled.
+
+Speaker-aware context uses the shared resolver and session attribution version. Exact speaker spans
+are optional for legacy events; unknown channels never imply a customer. Human confirmations can
+trigger reanalysis with no new text, subject to existing limits. See [speaker design](../design/speaker-attribution.md).

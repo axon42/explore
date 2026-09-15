@@ -182,7 +182,7 @@ def test_finalize_export_participants_revisions_and_isolation(tmp_path):
         _, mid, sid = setup_meeting(client)
         _, other, _ = setup_meeting(client)
         people = {
-            "revision": 0,
+            "revision": client.get(f"/meetings/{mid}/participants").json()["revision"],
             "participants": [
                 {
                     "speaker_id": "cofounder",
@@ -234,7 +234,7 @@ def test_finalize_export_participants_revisions_and_isolation(tmp_path):
     with TestClient(create_app(settings)) as client:
         assert len(client.get(f"/meetings/{mid}/reports").json()["reports"]) == 2
         fresh = client.post(f"/meetings/{mid}/reset", json={"session_id": sid}).json()
-        assert fresh["session"]["id"] != sid and len(fresh["notes"]) == 2
+        assert fresh["session"] is None and len(fresh["notes"]) == 2
         assert client.get(f"/meetings/{mid}/reports").json()["reports"] == []
         assert (
             client.get(f"/meetings/{mid}/participants").json()["participants"][0]["name"] == "Alex"
@@ -293,7 +293,10 @@ async def test_reset_cancels_report_and_old_result_cannot_write(analysis_pipelin
     await asyncio.wait_for(entered.wait(), 3)
     await pipeline.stop(sid)
     fresh = await pipeline.service.read(pipeline.discovery.reset, mid)
-    assert fresh["session"]["id"] != sid
+    assert fresh["session"] is None
+    from tests.prepared import start_local
+
+    fresh = start_local(pipeline.service.storage, mid)
     assert Reports(pipeline.service.storage).list(mid)["reports"] == []
     assert not pipeline.discovery.memory(fresh["session"]["id"])["coverage"]
 
@@ -315,7 +318,7 @@ def test_migration_v2_preserves_source_and_is_idempotent(tmp_path):
     with storage.connection() as db:
         assert [
             r[0] for r in db.execute("SELECT version FROM schema_migrations ORDER BY version")
-        ] == [1, 2, 3, 4, 5]
+        ] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
         assert not db.execute("PRAGMA foreign_key_check").fetchall()
 
 

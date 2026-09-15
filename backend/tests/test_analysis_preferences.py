@@ -16,7 +16,9 @@ from tests.test_pipeline import pipeline  # noqa: F401
 def test_preferences_validation_concurrency_and_restart(tmp_path):
     settings = Settings(data_dir=tmp_path, analysis_strategy="legacy")
     with TestClient(create_app(settings)) as client:
-        sid = client.post("/sessions", json={"title": "Settings test"}).json()["id"]
+        from tests.test_api import create
+
+        sid = create(client)
         assert client.get("/settings/analysis").json() == {"strategy": "legacy", "revision": 0}
         for body in [
             {"strategy": "unknown", "revision": 0},

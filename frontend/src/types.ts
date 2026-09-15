@@ -7,7 +7,13 @@ export interface Session {
   version: number;
 }
 
+export interface Attribution {
+  index: number; start: number; end: number; track_id: string | null; name: string; participant_id: string | null;
+  interview_role: string; status: string; scope: string; needs_review: boolean;
+}
+
 export interface Segment {
+  attributions?: Attribution[];
   event_id: string;
   segment_id: string;
   revision: number;
