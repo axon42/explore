@@ -222,6 +222,51 @@ def migrate(db, timestamp):
             "CREATE INDEX developer_traces_session ON developer_traces(session_id,created_at)"
         )
         db.execute("INSERT INTO schema_migrations VALUES(10,?)", (timestamp,))
+    if not db.execute("SELECT 1 FROM schema_migrations WHERE version=11").fetchone():
+        if not db.in_transaction:
+            db.execute("BEGIN IMMEDIATE")
+        db.execute(
+            "ALTER TABLE meetings ADD COLUMN analysis_schedule TEXT NOT NULL "
+            "DEFAULT 'automatic' CHECK(analysis_schedule IN ('manual','automatic'))"
+        )
+        db.execute("ALTER TABLE meetings ADD COLUMN schedule_revision INTEGER NOT NULL DEFAULT 0")
+        db.execute("""CREATE TABLE manual_analysis_jobs(
+            id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+            fingerprint TEXT NOT NULL, status TEXT NOT NULL
+            CHECK(status IN ('running','succeeded','failed','stale','interrupted')),
+            input_json TEXT NOT NULL,
+            created_at TEXT NOT NULL, error TEXT NOT NULL DEFAULT '')""")
+        db.execute(
+            "CREATE UNIQUE INDEX manual_analysis_active ON manual_analysis_jobs(session_id) "
+            "WHERE status='running'"
+        )
+        db.execute("INSERT INTO schema_migrations VALUES(11,?)", (timestamp,))
+    if not db.execute("SELECT 1 FROM schema_migrations WHERE version=12").fetchone():
+        if not db.in_transaction:
+            db.execute("BEGIN IMMEDIATE")
+        db.execute(
+            "CREATE TABLE model_selection(id INTEGER PRIMARY KEY CHECK(id=1), "
+            "provider TEXT NOT NULL CHECK(provider IN ('mock','gemini','openai')), "
+            "model TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision>=0))"
+        )
+        db.execute("INSERT INTO schema_migrations VALUES(12,?)", (timestamp,))
+    if not db.execute("SELECT 1 FROM schema_migrations WHERE version=13").fetchone():
+        if not db.in_transaction:
+            db.execute("BEGIN IMMEDIATE")
+        # Analysis can improve without any transcript/context edit. Keep every old payload.
+        db.execute("""CREATE TABLE reports_v13(id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+            revision INTEGER NOT NULL, input_version INTEGER NOT NULL,
+            context_version INTEGER NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL,
+            UNIQUE(session_id, revision))""")
+        db.execute("INSERT INTO reports_v13 SELECT * FROM reports")
+        db.execute("DROP TABLE reports")
+        db.execute("ALTER TABLE reports_v13 RENAME TO reports")
+        db.execute("INSERT INTO schema_migrations VALUES(13,?)", (timestamp,))
+    db.execute(
+        "UPDATE manual_analysis_jobs SET status='interrupted', "
+        "error='Analysis interrupted. Retry explicitly.' WHERE status='running'"
+    )
     db.execute("UPDATE developer_traces SET outcome='interrupted' WHERE outcome='running'")
     db.execute(
         "UPDATE capture_runs SET payload=json_set(payload, '$.status', 'failed', "

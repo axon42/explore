@@ -8,6 +8,7 @@ from app.discovery import Discovery
 from app.main import create_app
 from app.models import TranscriptEvent
 from app.storage import Storage
+from tests.prepared import automatic_session
 from tests.test_api import payload
 from tests.test_discovery import setup_meeting, wait_for
 from tests.test_pipeline import pipeline  # noqa: F401
@@ -72,7 +73,7 @@ def test_preferences_discard_archive_and_migration(tmp_path):
 
 async def test_live_fragments_wait_and_questions_respect_cooldown(pipeline):  # noqa: F811
     pipeline.service.on_final = lambda sid: None
-    session = pipeline.service.storage.create("Synthetic pacing")
+    session = automatic_session(pipeline.service.storage, "Synthetic pacing")
     sid, mid = session["id"], session["meeting_id"]
     calls = []
 

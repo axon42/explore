@@ -13,6 +13,7 @@ from app.discovery import Discovery
 from app.main import create_app
 from app.models import TranscriptEvent
 from app.storage import Storage
+from tests.prepared import automatic_session
 from tests.test_api import payload
 
 
@@ -203,7 +204,7 @@ async def test_context_edit_discards_inflight_result(tmp_path):
     service = Service(storage, Broadcaster(128))
     pipeline = Pipeline(service, Settings(data_dir=tmp_path))
     service.on_final = pipeline.notify
-    session = storage.create("Context")
+    session = automatic_session(storage, "Context")
     entered, release = asyncio.Event(), asyncio.Event()
 
     async def slow(context):

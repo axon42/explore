@@ -29,9 +29,9 @@ Use one versioned section schema for meeting notes and final reports. Keep the s
 The report begins with participant details and a concise summary, followed by the structured detail. “All details” means preserving substantive evidence and access to the complete transcript, not claiming that a prose summary reproduces every utterance.
 
 ## Report lifecycle
-- Separate replay pause, transcript-source closure and meeting finalization. A pause does not create a final report. On meeting end, close ingestion and capture its final accepted cursor, drain analysis through it, then schedule report generation once.
-- The stop path cancels live analysis, then schedules a separate finalization worker to drain unprocessed finals before reporting. Reset/clear cancel work without starting finalization.
-- Build from structured state plus source passages. Check coverage across the entire accepted transcript; if some dialogue was never analyzed, process it in bounded batches before synthesis. Never generate a “complete” report solely from the last context window.
+- Separate replay pause, transcript-source closure and meeting finalization. A pause does not create a final report. On meeting end, close ingestion and capture its final accepted cursor, review the full transcript, then schedule report generation once.
+- The stop path cancels live analysis, then schedules a separate finalization worker to review all finals plus accumulated AI memory before reporting. Reset/clear cancel work without starting finalization.
+- Build from structured state plus source passages. Check coverage across the entire accepted transcript; if some dialogue was never analyzed, include it in the single full-input review before synthesis. Never generate a “complete” report solely from the last context window.
 - Record pending/generating/complete/failed state and covered cursor. Retries are idempotent. On provider failure or incomplete coverage, preserve data and show that completion failed or is partial, rather than publishing a misleading final report.
 - Save immutable report revisions with schema, source/context versions, model/prompt identity, usage and evidence references. Later corrections or human-context changes mark the report outdated; regeneration creates a new revision while preserving the old one. Keep human edits separate from generated revisions.
 - Reset invalidates in-flight report jobs using the session identity, just as it does live analysis. No stale result may repopulate deleted data.
@@ -78,20 +78,39 @@ uses the existing safe text/evidence components. Existing saved reports are not 
 [extraction and archive contract](archives-and-question-history.md).
 
 
-## Later: post-meeting AI review — planned 2026-09-15
-After live processing drains (or clearly identifies unresolved gaps), a separate budgeted review
-can revisit the full preserved transcript and confirmed participant roles. Use bounded transcript
-passes plus a consolidation pass with a coverage manifest, rather than silently truncating a long
-meeting. Check missing topics, incorrect associations, contradictions, unsupported claims, omitted
-spoken questions and workflow order against exact source revisions.
+## Deferred review extensions
+Independent multi-pass verification, resumable chunked reviews and a visual review diff remain
+planned. The single full-transcript final review below is implemented. Market research is separate
+and cannot become meeting evidence. Review cannot recover missing speech without new evidence.
 
-Save proposed changes to generated notes and reports as a new revision with evidence and a review
-diff. Preserve the original report, transcript, human-authored notes and confirmed attribution;
-uncertainty stays explicit. This cannot recover misheard/missing words without additional evidence.
-Interrupted/failed review must remain resumable and must not replace the last valid report. An
-unavailable model or exhausted budget shows review pending/blocked, not verified completion.
+New report provider labels come from successful analysis provenance, including `mixed` when
+providers differ. Existing report revisions remain immutable. See [model selection](model-selection.md).
 
-This is a future roadmap item, not another always-on live agent. The explicit request makes it a
-planned end-of-meeting feature; automatic enablement, model and separate budget must be decided
-before implementation. Market research remains a separate task and cannot become meeting evidence.
-See [roadmap](../docs/roadmap.md) and [reliability design](analysis-reliability.md).
+## Final review — implemented 2026-09-16
+- Explicit meeting end runs one full-transcript call in either scheduling mode. Stopping capture
+  alone does not end the meeting. Report → **Run final review** handles past ended meetings.
+- Reuse the manual input builder, topic catalog, provider selection, strict evidence validation,
+  durable receipt and atomic artifact commit. Include prior claims/workflows, human context and
+  question history. Prior AI output is comparison material, not evidence.
+- Correct supported artifacts through existing stable keys and topic identities; preserve human
+  notes, confirmed identities and transcript revisions. No new live question is queued after end.
+- Same input/model/context and unchanged accepted analysis reuse the last successful final review.
+  Empty meetings make no provider call. No hidden retry; separate final-review allowance and existing input/output limits apply.
+- Migration 13 preserves old report payloads and permits new revisions for changed analysis with
+  unchanged transcript/context. New payloads carry analysis_version; previous reports remain readable.
+- Failed, timed-out, invalid or incomplete live analyses do not gate final review. It includes all
+  saved final segments and the last valid accumulated state, including previously uncovered speech.
+  A prior failed live attempt does not count as a completed final review.
+- An ongoing provider outage, missing credentials or exhausted final-review call limit can still block
+  final review. Exhausted call allowance reports an explicit blocked reason and sends no request.
+  FINAL_REVIEW_MAX_CALLS defaults to two attempts per session, separate from live/manual usage. Retry explicitly after resolving the cause.
+- Errors/stale results publish no replacement report. Review diffs and independent multi-pass
+  verification remain future work; this feature cannot recover speech that was never captured.
+
+Opportunity findings and structured claims are always normalized to inferred hypotheses before
+evidence validation. An overstated certainty label alone does not discard an otherwise valid review;
+unknown evidence or invalid attribution still rejects the proposal.
+
+Workflow connection counts that do not match adjacent step pairs are normalized to unknown order
+for every connection, after validating all supplied step/connection evidence. Supported steps remain;
+no positional alignment is guessed. Unknown references still reject the whole proposal.

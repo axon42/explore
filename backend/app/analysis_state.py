@@ -5,7 +5,7 @@ import time
 from dataclasses import dataclass
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class Contract(BaseModel):
@@ -29,6 +29,14 @@ class Claim(AttributedProposal):
     text: str = Field(min_length=1, max_length=1000)
     basis: Literal["observed", "inferred"]
     source_ids: list[str] = Field(min_length=1, max_length=10)
+
+    @model_validator(mode="after")
+    def inferred_opportunity(self):
+        if self.section == "opportunities":
+            # Opportunities remain hypotheses even when the provider overstates certainty.
+            # Source references and confirmed attribution are still validated separately.
+            self.basis = "inferred"
+        return self
 
 
 class QuestionMatch(Contract):
@@ -241,13 +249,15 @@ def validate_proposal(result, context):
         if match.question_id not in questions:
             raise ValueError("Unknown question")
     for workflow in result.workflows:
-        if len(workflow.transitions) != len(workflow.steps) - 1:
-            raise ValueError("Workflow transition count mismatch")
         for step in workflow.steps:
             check(step.source_ids)
         for ids in workflow.transitions:
             if ids:
                 check(ids)
+        if len(workflow.transitions) != len(workflow.steps) - 1:
+            # Positional alignment is ambiguous. Validate all supplied references above,
+            # then preserve supported steps without claiming any established ordering.
+            workflow.transitions = [[] for _ in range(len(workflow.steps) - 1)]
 
 
 def reduce_memory(memory, snapshot, context, result):

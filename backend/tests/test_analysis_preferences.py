@@ -9,6 +9,7 @@ from app.config import Settings
 from app.main import create_app
 from app.models import TranscriptEvent
 from app.storage import Storage
+from tests.prepared import automatic_session
 from tests.test_api import payload
 from tests.test_pipeline import pipeline  # noqa: F401
 
@@ -89,7 +90,7 @@ def test_migration_and_reset_preserve_choice_and_evidence(tmp_path):
 
 async def test_mode_change_keeps_inflight_contract_and_applies_to_next_batch(pipeline):  # noqa: F811
     pipeline.service.on_final = lambda sid: None
-    session = pipeline.service.storage.create("Switching modes")
+    session = automatic_session(pipeline.service.storage, "Switching modes")
     sid = session["id"]
     pipeline.wakes[sid] = asyncio.Event()
     pipeline.preferences.update("topics", 0)

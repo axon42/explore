@@ -36,6 +36,10 @@ Example, with synthetic dialogue:
 | “Back to the report: five of those hours are waiting for access.” | Resume reporting; attach the clarification and supporting evidence | Consider a specific remaining gap after the speaker finishes |
 | “No, that delay happened only once.” | Record a correction; remove any unsupported recurring-delay inference | Reconsider questions based on the old premise |
 
+Full-review instructions explicitly distinguish one focus from multiple topic updates, and prohibit
+repurposing an existing ID for an unrelated discussion. This is a model instruction, not a semantic
+guarantee; topic recall and identity continuity still require labeled real-model evaluation.
+
 The topic remains operational reporting even when its title is refined. A return creates new
 evidence links to the existing identity, not a duplicate topic.
 
@@ -252,4 +256,9 @@ assignments; old topic/run provenance remains available for review.
 ## Planned reliability follow-up — 2026-09-15
 See [interview reliability and analysis quality](analysis-reliability.md) for capture/utterance
 assembly, scoped diagnostics, durable analysis jobs and multi-topic evaluation. These are proposals;
-the existing implementation and limits remain unchanged.
+the broader queue, metrics and transcript-quality changes remain planned.
+
+## Full-input review — implemented
+[Manual analysis](context-rebuild.md), the default for new meetings, revisits the full transcript per
+click. Preserve topic/evidence history and the human question ledger. Automatic incremental routing
+remains an opt-in scheduling strategy; neither mode implies a different speaker identity policy.

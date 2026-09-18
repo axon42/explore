@@ -2,6 +2,7 @@ import pytest
 
 from app.analysis import Finding, Suggestion
 from app.analysis_state import Workflow, validate_proposal
+from tests.prepared import automatic_session
 from tests.test_pipeline import pipeline  # noqa: F401
 
 
@@ -78,7 +79,7 @@ async def test_linked_findings_persist_with_workflow_memory(pipeline):  # noqa: 
     from tests.test_api import payload
 
     pipeline.service.on_final = lambda sid: None
-    session = pipeline.service.storage.create("Synthetic relationship")
+    session = automatic_session(pipeline.service.storage, "Synthetic relationship")
     sid = session["id"]
     await pipeline.service.ingest(sid, TranscriptEvent(**payload(is_final=True)))
 

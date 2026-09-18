@@ -196,3 +196,33 @@ In-flight writes use a generation check so late results cannot repopulate cleare
 Local admin key/cookie digests are outside this schema: the private key is in the data directory;
 cookie hashes and expiries exist only in process memory. This is local-owner access, not team RBAC.
 See [design](../design/observability.md) and [usage](developer-tools.md).
+
+
+## Manual analysis scheduling (migration 11)
+`meetings.analysis_schedule` is `manual` or `automatic`; `schedule_revision` fences stale setting
+writes. Existing rows migrate to Automatic; new rows are explicitly Manual. Reset retains the choice.
+
+`manual_analysis_jobs` belongs to a session (cascade on authorized working reset/deletion). It stores
+UUID idempotency key, fingerprint, frozen input JSON, timestamp, status and safe error. A partial unique
+index allows one running receipt per session. Job creation and `experiments.calls` reservation are one
+transaction; successful ACK shares the artifact/coverage transaction in `Discovery.record_run`.
+Startup turns running jobs into interrupted jobs without redispatch. Full accepted input/output stays
+in `analysis_runs`; memory's `manual_fingerprint` prevents unchanged successful resubmission. Human
+content and protected transcript-vault retention are unchanged. See [contract](../design/context-rebuild.md).
+
+Migration 12 adds `model_selection`: one local application choice with provider, model and optimistic
+revision. Keys are not stored here. Frozen analysis inputs retain the selection; manual fingerprints
+include it. Existing source/evidence and report revisions are unchanged.
+
+## Final review and report revisions (migration 13)
+Final reviews reuse session-owned manual receipts with frozen `review_kind=final` inputs and the
+same atomic validated analysis commit. Memory records `final_review_fingerprint` and
+`final_review_version` to reuse only an unchanged successful review. No transcript is rewritten.
+Reports retain unique (session_id, revision); migration 13 removes the old uniqueness constraint
+on source/context versions while preserving every payload. New report JSON includes analysis_version,
+so improved analysis can create a report revision without a transcript edit. Human notes stay separate.
+
+Final-review reservations are counted from session-owned manual_analysis_jobs whose frozen input has
+review_kind=final, including failed/interrupted attempts. They survive backend restart and do not
+increment the live/manual experiments.calls counter. Existing final receipts count toward the new
+allowance; old live counters are preserved conservatively. No migration or usage reset is needed.

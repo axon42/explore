@@ -1,3 +1,4 @@
+import { AnalysisControls } from "./AnalysisControls";
 import { Select } from "./Select";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -168,7 +169,7 @@ export function MeetingView({
         <div className="ex-header-actions">
           {testTools && !stopped && <a href={`/zoom-proof.html?session=${encodeURIComponent(sid)}`} target="_blank" rel="noopener noreferrer">Zoom test ↗</a>}
           <span className="ex-mode">
-            {experiment.provider === "mock" ? "Simulated analysis" : "Gemini"}
+            {experiment.provider === "mock" ? "Simulated analysis" : experiment.model}
           </span>
           <button disabled={busy || (!stopped && !detail.meeting.archived)} title={!stopped ? "Stop the meeting before archiving" : undefined} onClick={() => void action(`/meetings/${id}/preferences`, {revision: detail.meeting.context_version, archived: !detail.meeting.archived}, "PATCH")}>
             {detail.meeting.archived ? "Restore meeting" : "Archive meeting"}
@@ -202,6 +203,7 @@ export function MeetingView({
         </div>
       )}
       <div className="ex-content">
+        <AnalysisControls key={sid} sid={sid} experiment={experiment} archived={!!detail.meeting.archived} reload={reload} />
         {tab === "Interview" && (
           <>
             <AudioCapture key={sid} mid={id} sid={sid} stopped={stopped} />
@@ -260,8 +262,16 @@ export function MeetingView({
                       </header>
                       <p>{group.map((segment) => <span key={`${segment.segment_id}-${segment.span_index ?? "legacy"}`} id={segment.anchor === false ? undefined : "source-" + segment.segment_id} className={focus?.segment_id === segment.segment_id ? "highlight" : undefined}>
                         {segment.text}{!segment.is_final && <small> Draft</small>}{" "}
-                        {segment.is_final && segment.span_index !== undefined && <button className="ex-correct-speaker" onClick={() => setSpeakerPassage({ segment_id: segment.segment_id, segment_revision: segment.revision, span_index: segment.span_index!, text: segment.text })}>Correct speaker</button>}
                       </span>)}</p>
+                      {group.some(segment => segment.is_final && segment.span_index !== undefined) && <details className="ex-speaker-corrections">
+                        <summary>Correct speaker</summary>
+                        <p>Choose the exact passage to assign to a person.</p>
+                        <ol>{group.filter(segment => segment.is_final && segment.span_index !== undefined).map((segment, index) => <li key={`${segment.segment_id}-${segment.span_index}`}>
+                          <button aria-label={`Correct speaker for passage ${index + 1}`} onClick={() => setSpeakerPassage({ segment_id: segment.segment_id, segment_revision: segment.revision, span_index: segment.span_index!, text: segment.text })}>
+                            <small>Passage {index + 1} · {timestamp(segment.start_ms)}</small><span>{segment.text}</span>
+                          </button>
+                        </li>)}</ol>
+                      </details>}
                     </article>
                   ))}
                   {!segments.length && (
@@ -405,6 +415,9 @@ export function MeetingView({
                       : `${detail.questions.length} collected`}
                   </span>
                 </div>
+                {experiment.scheduling?.mode === "manual" && (experiment.scheduling.pending_segments > 0 || segments.some((segment) => !segment.is_final)) && activeQuestions.length > 0 && (
+                  <p className="ex-muted" role="status">New speech has not been analyzed. It may already answer a suggested question.</p>
+                )}
                 <div className="ex-progress">
                   <div>
                     <strong>
@@ -492,7 +505,7 @@ export function MeetingView({
               <h2><span className="ex-icon"><MessageSquare size={16} /></span>Discussion so far</h2>
               <p>
                 {detail.overview ||
-                  "No analysis yet. Deliver a customer turn to begin."}
+                  "No analysis yet. Capture speech, then use the analysis controls above."}
               </p>
               {detail.overview_input_version !== null && (
                 <small>

@@ -23,6 +23,7 @@ from app.main import create_app
 from app.models import TranscriptEvent
 from app.reports import SECTIONS, Reports, diagram
 from app.storage import Storage
+from tests.prepared import automatic_session
 from tests.test_api import payload
 from tests.test_discovery import setup_meeting
 from tests.test_pipeline import pipeline as analysis_pipeline  # noqa: F401
@@ -133,7 +134,7 @@ def test_proposal_rejects_cross_source_question_and_workflow_references():
 
 async def test_new_speech_commits_memory_but_defers_question(analysis_pipeline):  # noqa: F811
     pipeline = analysis_pipeline
-    session = pipeline.service.storage.create("Streaming")
+    session = automatic_session(pipeline.service.storage, "Streaming")
     sid = session["id"]
     entered, release = asyncio.Event(), asyncio.Event()
     original = MockAnalyzer()
@@ -277,7 +278,7 @@ def test_report_failure_retry_and_long_transcript(tmp_path):
 
 async def test_reset_cancels_report_and_old_result_cannot_write(analysis_pipeline):  # noqa: F811
     pipeline = analysis_pipeline
-    session = pipeline.service.storage.create("Race")
+    session = automatic_session(pipeline.service.storage, "Race")
     sid, mid = session["id"], session["meeting_id"]
     await pipeline.service.ingest(sid, TranscriptEvent(**payload(is_final=True)))
     await pipeline.service.stop(sid)
@@ -318,7 +319,7 @@ def test_migration_v2_preserves_source_and_is_idempotent(tmp_path):
     with storage.connection() as db:
         assert [
             r[0] for r in db.execute("SELECT version FROM schema_migrations ORDER BY version")
-        ] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        ] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
         assert not db.execute("PRAGMA foreign_key_check").fetchall()
 
 
@@ -333,7 +334,11 @@ def test_question_matches_are_proposals_and_diagrams_have_evidence(tmp_path):
         question = wait_for(client, mid, lambda d: bool(d["questions"]))["questions"][0]
 
         async def proposal(context):
-            return Suggestion(
+            from app.analysis import FullSuggestion
+
+            model = FullSuggestion if context.get("scope") == "full-transcript" else Suggestion
+            return model(
+                **({"complete": True} if model is FullSuggestion else {}),
                 question="",
                 rationale="",
                 source_ids=[],

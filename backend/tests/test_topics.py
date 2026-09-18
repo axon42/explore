@@ -9,6 +9,7 @@ from app.models import TranscriptEvent
 from app.reports import Reports, report_markdown
 from app.storage import Storage
 from app.topics import TopicProposal, TopicUpdate, validate_topics
+from tests.prepared import automatic_session
 from tests.test_api import payload
 from tests.test_pipeline import pipeline  # noqa: F401
 
@@ -69,7 +70,7 @@ def test_first_topic_schema_and_safe_validation_codes():
 def setup(pipeline):  # noqa: F811
     pipeline.preferences.update("topics", pipeline.preferences.get()["revision"])
     pipeline.service.on_final = lambda sid: None
-    session = pipeline.service.storage.create("Synthetic topic interview")
+    session = automatic_session(pipeline.service.storage, "Synthetic topic interview")
     pipeline.wakes[session["id"]] = asyncio.Event()
     return session["id"], session["meeting_id"]
 
@@ -409,7 +410,7 @@ async def test_topic_commit_is_idempotent_and_cross_session_update_rolls_back(pi
     before = Reports(pipeline.service.storage).export(mid)["topics"]
     pipeline.discovery.record_run(sid, ctx, "mock", run, memory)
     assert Reports(pipeline.service.storage).export(mid)["topics"] == before
-    other = pipeline.service.storage.create("Other workspace interview")
+    other = automatic_session(pipeline.service.storage, "Other workspace interview")
     foreign = copy = json.loads(json.dumps(ctx))
     foreign["job_id"] = "foreign-job"
     foreign["session_id"] = other["id"]

@@ -81,6 +81,11 @@ export type Detail = {
   notes: Note[];
 };
 export type Experiment = {
+  scheduling?: {
+    mode: "manual" | "automatic"; revision: number; changed: boolean;
+    pending_segments: number; final_segments: number; analyzed_through_ms: number; remaining_calls: number;
+    job: { id: string; status: string; error: string } | null;
+  };
   strategy?: string;
   cursor: number;
   total: number;
@@ -91,7 +96,7 @@ export type Experiment = {
   analysis_status: string;
   error: string;
   calls: number;
-  result: { latency_ms: number } | null;
+  result: { latency_ms: number; model?: string; review?: { empty: boolean; reason: string } } | null;
 };
 export type Bundle = {
   detail: Detail;

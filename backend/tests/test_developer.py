@@ -19,6 +19,7 @@ from app.models import DomainError, TranscriptEvent
 from app.pipeline import Pipeline
 from app.service import Service
 from app.storage import Storage
+from tests.prepared import automatic_session
 from tests.test_api import create, payload
 
 ORIGIN = {"origin": "http://127.0.0.1:5173"}
@@ -260,7 +261,7 @@ async def test_timeout_reduces_next_batch_without_advancing_checkpoint(tmp_path)
     storage.initialize()
     service = Service(storage, Broadcaster(128))
     pipeline = Pipeline(service, Settings(data_dir=tmp_path))
-    sid = storage.create("Adaptive batching")["id"]
+    sid = automatic_session(storage, "Adaptive batching")["id"]
     for n in range(50):
         storage.ingest(
             sid,
@@ -305,7 +306,7 @@ async def test_cancelled_request_keeps_evidence_and_records_cancellation(tmp_pat
     storage.initialize()
     service = Service(storage, Broadcaster(128))
     pipeline = Pipeline(service, Settings(data_dir=tmp_path))
-    sid = storage.create("Cancellation")["id"]
+    sid = automatic_session(storage, "Cancellation")["id"]
     storage.ingest(sid, TranscriptEvent(**payload(is_final=True)))
     entered = asyncio.Event()
 

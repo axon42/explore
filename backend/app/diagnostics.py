@@ -49,7 +49,9 @@ def request_sent(payload):
     trace = ACTIVE_TRACE.get()
     if trace:
         trace.metadata["request_kind"] = "provider_payload"
-        trace.metadata["request_bytes"] = len(json.dumps(payload).encode())
+        trace.metadata["request_bytes"] = len(
+            json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
+        )
         if trace.capture:
             trace.request = payload
 
@@ -180,7 +182,12 @@ class Diagnostics:
             sid, context["job_id"], model, self.recording()["enabled"], self.epoch, self.generation
         )
         trace.metadata.update(
+            provider=context.get("model_selection", {}).get("provider"),
             timeout_seconds=timeout,
+            scheduling_mode=context.get("scheduling_mode", "automatic"),
+            scope=context.get("scope", "incremental"),
+            review_kind=context.get("review_kind", "live"),
+            input_watermark=context.get("input_version"),
             input_chars=len(json.dumps(context)),
             segment_count=len(context["segments"]),
             new_segments=len(context["new_source_ids"]),

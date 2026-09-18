@@ -31,6 +31,10 @@ async def test_safe_provider_error_without_automatic_retries(monkeypatch, status
     with pytest.raises(ProviderError) as exc:
         await GeminiAnalyzer("private-key", "gemini-3.1-flash-lite").analyze({})
     assert expected in str(exc.value)
+    assert exc.value.code == f"provider_http_{status}"
+    if status == 503:
+        assert "Transcript is saved" in str(exc.value)
+        assert "API key" not in str(exc.value)
     assert "private" not in str(exc.value)
     assert len(calls) == 1
 

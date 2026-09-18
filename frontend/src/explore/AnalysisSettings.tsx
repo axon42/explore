@@ -1,3 +1,4 @@
+import { ModelSettings } from "./ModelSettings";
 import { Select } from "./Select";
 import { useEffect, useState } from "react";
 import { Settings2 } from "lucide-react";
@@ -47,6 +48,7 @@ export function AnalysisSettings() {
       <option value="topics">Discussion threads</option>
     </Select>
     <p>{busy ? "Saving…" : "All meetings · applies to new batches"}</p>
+    <ModelSettings />
     {(offline || error) && <div><p role="alert">{offline ? "Analysis settings unavailable." : error}</p>
       <button onClick={() => { setError(""); setRetry(n => n + 1); }}>Refresh setting</button></div>}
     </>}

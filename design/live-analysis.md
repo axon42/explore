@@ -11,7 +11,7 @@ persistent topics, switching/resuming, readiness and bounded evidence retrieval.
 remains `legacy`; real-provider evaluation is pending. The browser now displays topic context and report groupings.
 
 ## How it works
-The LLM receives a small packet every time enough new dialogue arrives: the new words, recent conversation, interview goals and what Explore already knows. It returns proposed updates. Explore validates and saves them, then includes the updated state in the next packet. The model does not continuously listen or independently remember the meeting.
+In **Automatic** scheduling, the LLM receives a small packet when enough new dialogue arrives: the new words, recent conversation, interview goals and what Explore already knows. It returns proposed updates. Explore validates and saves them, then includes the updated state in the next packet. The model does not continuously listen or independently remember the meeting.
 
 ```mermaid
 flowchart LR
@@ -193,8 +193,8 @@ After a timeout the session's persisted `batch_reduction` increments up to 3. Su
 24K new-text characters / 60 fragments divided by 2, 4 or 8. A first whole segment may exceed that
 reduced budget; it is never truncated. The reduced fragment cap also allows enough tiny fragments
 to reach the existing 35-word readiness gate (still at most 60 fragments). Recent context, meeting memory and immutable evidence stay
-intact. Failure leaves coverage unchanged. Only the next ordinary scheduled/manual attempt uses the
-smaller batch; no hidden retry, extra provider call, model swap or increased call limit is added.
+intact. Failure leaves coverage unchanged. Only the next Automatic incremental attempt uses the
+smaller batch; Manual full-transcript review is never reduced; no hidden retry, extra provider call, model swap or increased call limit is added.
 This is a conservative mitigation, not a guarantee against provider/network delays. Fixed prompt/schema
 overhead still matters. Evaluate quality/latency before changing thinking or adding another model.
 
@@ -205,4 +205,13 @@ the backend-protected [Developer view](observability.md). No raw request/respons
 ## Planned reliability follow-up — 2026-09-15
 See [interview reliability and analysis quality](analysis-reliability.md) for capture/utterance
 assembly, scoped diagnostics, durable analysis jobs and multi-topic evaluation. These are proposals;
-the existing implementation and limits remain unchanged.
+the broader queue, metrics and transcript-quality changes remain planned.
+
+## Manual scheduling — implemented
+[Manual full-transcript analysis](context-rebuild.md) is the default for new meetings. It shares
+validation and persistence with the incremental strategy above, but dispatches only on an explicit
+click, uses a full-input contract and never drains model calls on meeting end. Existing meetings
+retain Automatic until explicitly changed. The linked design defines limits, receipts and failures.
+
+Provider/model selection is independent of strategy and scheduling. See [model selection](model-selection.md).
+Unknown speaker identity permits neutral extraction; it never establishes a customer or founder role.

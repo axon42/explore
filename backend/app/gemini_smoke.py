@@ -37,6 +37,7 @@ async def check(settings):
         pipeline = Pipeline(service, settings)
         session = await service.read(storage.create, "Synthetic Gemini integration check")
         sid = session["id"]
+        await pipeline.set_schedule(sid, "automatic", 0)
         try:
             position = 0
             for i, turn in enumerate(FIXTURE["turns"][:4]):

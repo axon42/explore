@@ -63,3 +63,16 @@ CSS tokens keep actions/workflows blue, live observations sage, AI suggestions v
 gaps amber. Labels and evidence remain authoritative. Question frequency is next to questions;
 forms, dialogs, notes and reports share the same visual treatment. No data contract, provider
 logic or dependency changed. The static mock remains a reference, not the app entry point.
+
+## Analysis controls — implemented
+Meeting controls provide **Manual / Automatic** scheduling separately from Standard/Discussion threads.
+Manual defaults on new meetings. **Analyze now** / **Retry analysis** shows progress, coverage,
+pending speech and remaining calls; capture stays available. Existing meetings retain their schedule.
+No separate rebuild button. [Behavior and limits](context-rebuild.md).
+
+Transcript speaker correction is now a separate, collapsed passage picker below each speaker turn.
+Transcript paragraphs contain source text and draft markers only; exact passage/revision assignment
+remains available through the existing dialog. No source text is changed by this presentation fix.
+
+Analysis settings now includes a provider/model selector. Missing credentials disable that option;
+keys remain server-side. Empty successful Manual reviews show an explicit outcome and model reason.

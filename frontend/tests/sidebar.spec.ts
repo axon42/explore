@@ -45,7 +45,7 @@ test('sidebar groups actions, preserves live archive guards and stays usable wit
   await request.post(`/api/sessions/${started.session.id}/stop`);
   await page.setViewportSize({width:390,height:844});
   await page.getByRole('button',{name:'Analysis settings',exact:true}).click();
-  await expect(page.getByLabel('Analysis mode')).toBeVisible();
+  await expect(page.getByLabel('Analysis mode', {exact:true})).toBeVisible();
   const panel = page.locator('.ex-sidebar-popover:popover-open');
   const bounds=await panel.boundingBox();
   expect(bounds!.x).toBeGreaterThanOrEqual(0);expect(bounds!.x+bounds!.width).toBeLessThanOrEqual(390);
@@ -62,9 +62,9 @@ test('analysis offline state is visible from the compact control and can recover
   const trigger=page.getByRole('button',{name:'Analysis settings',exact:true});
   await expect(trigger).toContainText('Offline');
   await trigger.click();
-  await expect(page.getByLabel('Analysis mode')).toBeDisabled();
+  await expect(page.getByLabel('Analysis mode', {exact:true})).toBeDisabled();
   await expect(page.getByRole('region',{name:'Analysis settings'}).getByRole('alert')).toContainText('unavailable');
   offline=false;await page.getByRole('button',{name:'Refresh setting'}).click();
-  await expect(page.getByLabel('Analysis mode')).toBeEnabled();
+  await expect(page.getByLabel('Analysis mode', {exact:true})).toBeEnabled();
   await expect(trigger).toContainText('Threads');
 });

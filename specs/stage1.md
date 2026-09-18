@@ -14,8 +14,9 @@ See [data model](../docs/data-model.md) and [design decisions](../design/archite
 
 ## Analysis and reporting backend
 Modular batching and persistent structured memory support specific, evidence-backed follow-ups.
-Question-progress matches are proposals; status remains human-controlled. Finalization drains
-accepted final dialogue before generating a versioned report. API exports preserve full transcript
+Question-progress matches are proposals; status remains human-controlled. New meetings use explicit
+manual full-transcript analysis; Automatic scheduling remains available. Explicit meeting end runs a full-transcript final review in either mode, even after failed live
+analysis. Past ended meetings can run it from Report; provider/budget failures remain visible. API exports preserve full transcript
 revisions; generated notes and reports share a structure beginning with participant roles. Supported
 workflows export editable Mermaid diagrams. Repository default remains mock; the real Gemini synthetic integration check passed and local configuration can enable Gemini.
 
@@ -29,3 +30,7 @@ threads below the transcript and saved report revisions with grouped notes, ques
 and evidence-linked workflow diagrams. [Market scans](../design/market-scan.md) are future work.
 
 Detected questions actually spoken are retained separately from suggestions, with exact transcript references and confirmed roles where available. They appear in the meeting and new reports; suggestion status stays manual. See [design](../design/archives-and-question-history.md).
+
+Analysis can select Gemini or OpenAI models through local settings, with server-only credentials
+and shared evidence validation. Simulated analysis remains available for tests. See
+[model selection](../design/model-selection.md) for current verification limits.

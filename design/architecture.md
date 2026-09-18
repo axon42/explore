@@ -18,6 +18,7 @@ and permission recovery still need a Firefox rehearsal.
 - Optimistic revisions prevent silent overwrites from another tab. Reset stops work before transactional deletion; a fresh session ID rejects old producer traffic.
 
 ## Interface
+- Implemented [manual full-transcript analysis](context-rebuild.md) is the MVP default for 45-minute meetings; Automatic incremental mode remains opt-in. Scheduling and reasoning strategies stay separate.
 - [Shared dropdowns](dropdowns.md) standardize selection fields without changing API/data contracts.
 - [Sidebar organization](sidebar.md) implements the approved 272 px rail, grouped navigation,
   workspace actions and compact tools; existing API and permission contracts are preserved.
@@ -38,6 +39,10 @@ Cross-meeting agents/context brain, embeddings, automatic answer detection, auth
 [Data model](../docs/data-model.md) · [Pipeline](../docs/pipeline.md)
 
 ## Analysis and reports
+Explicit meeting end runs a full-transcript review independently of live-analysis success. Past
+ended meetings can retry from Report; valid results create immutable report revisions. Shared
+provider limits remain enforced. See [final review](meeting-reports.md#final-review--implemented-2026-09-16).
+
 [Live analysis](live-analysis.md) now has replaceable batching, context, reasoning, validation and
 formatting components with durable meeting memory. The [report design](meeting-reports.md) is
 implemented through backend APIs for participant mappings, full transcript exports, shared generated
@@ -82,3 +87,6 @@ context and formatted report revisions; no agent framework was added. See [UI de
   context or the same response. Unknown links fail validation; absent links stay visibly unassigned.
 
 See [archives and question history](archives-and-question-history.md) for migrations 8–9, reversible organization and evidence-backed spoken-question extraction.
+
+[Provider/model selection](model-selection.md) adds a persisted local choice, frozen per request,
+and an OpenAI Responses adapter alongside Gemini. Existing transcripts and analysis validation are shared.

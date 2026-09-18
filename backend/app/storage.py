@@ -155,8 +155,8 @@ class Storage:
             db.execute(
                 "INSERT INTO "
                 "meetings(id,workspace_id,title,context_version,"
-                "created_at,updated_at) VALUES (?, ?, ?, 0, ?, ?)",
-                (meeting_id, workspace_id, title, now(), now()),
+                "created_at,updated_at,analysis_schedule) VALUES (?, ?, ?, 0, ?, ?, ?)",
+                (meeting_id, workspace_id, title, now(), now(), "manual"),
             )
             db.execute(
                 "INSERT INTO meeting_briefs VALUES (?, 0, ?, ?)",
