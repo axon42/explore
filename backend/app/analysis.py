@@ -134,10 +134,6 @@ def output_contract(context):
 
 
 FULL_SYSTEM = """
-When review_kind is final, this is the closing review of an ended meeting: reconcile accumulated
-AI analysis with the entire transcript, repair missed topics and incomplete workflows, and refine
-supported findings and uncertainties. Preserve human notes and confirmed identities. Do not
-generate an in-meeting question; retain unresolved issues as evidence-backed uncertainties.
 This request is an explicit full-transcript review, not an incremental batch. Review ALL supplied
 final segments, including earlier topics and later corrections. The full output schema supersedes
 the smaller per-batch item limits above. Identify distinct discussions and resumptions across the
@@ -159,6 +155,33 @@ schema/output budget; never silently omit earlier material to fit. No result is 
 """
 
 
+FINAL_SYSTEM = """
+This is the closing review of an ended meeting. Reconcile accumulated analysis against the full
+transcript, repair missed topics and incomplete workflows, and refine supported findings.
+Do not generate an in-meeting question; retain unresolved issues as evidence-backed uncertainties.
+"""
+MANUAL_SYSTEM = """
+This is an explicit Analyze now request during the conversation. The interviewer is asking for
+help now, not asking you to wait for an automatic speech boundary. First review ALL distinct
+workflows and discussions in the full transcript, including earlier material not yet represented.
+Keep existing topics and artifacts; omission from this response does not delete them. Update an
+existing summary cumulatively, retaining supported earlier context and citing its sources.
+When question_allowed=true, actively seek ONE useful, neutral follow-up grounded in a concrete
+workflow, incident or gap already described. Missing frequency, impact, actors or examples are
+opportunities to ask, not reasons to wait until the entire discussion is finished. Do not wait
+merely because the latest fragment starts a new thought or speaker identity is unconfirmed.
+Use a supported focus and evidence; uncertain identity never licenses guessing a role. Keep all
+question history and avoid repeats. No question is valid when there is no grounded useful gap;
+in that case explain the specific reason in rationale. Do not invent a question to fill a quota.
+"""
+
+
+def review_instructions(context):
+    if context.get("scope") != "full-transcript":
+        return ""
+    return FULL_SYSTEM + (FINAL_SYSTEM if context.get("review_kind") == "final" else MANUAL_SYSTEM)
+
+
 def serialized_request(payload):
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
 
@@ -170,7 +193,7 @@ def request_payload(context):
                 {
                     "text": SYSTEM
                     + (TOPIC_SYSTEM if context.get("strategy") == "topics-v1" else "")
-                    + (FULL_SYSTEM if context.get("scope") == "full-transcript" else "")
+                    + review_instructions(context)
                 }
             ]
         },

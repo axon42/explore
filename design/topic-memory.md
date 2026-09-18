@@ -113,10 +113,15 @@ Separate memory updates from permission to interrupt. The model proposes readine
 `developing`, `ready`, or `uncertain`, with a short reason and evidence. This is an assessment,
 not proof; the application also enforces freshness, scope, cooldown and budget rules.
 
-Publish only when the topic is sufficiently understood, the explanation appears complete,
+In Automatic mode, publish only when the topic is sufficiently understood, the explanation appears complete,
 there is a concrete unresolved gap, the question relates to the current focus, and no newer
 speech invalidates its premise. Preserve the existing conservative suppression while newer
 final text is pending or speech remains provisional. Maximum-window flushes update memory only.
+
+For explicit Manual live review, developing readiness alone does not suppress an otherwise
+supported follow-up: the user requested analysis now. Uncertain routing/readiness still waits;
+evidence, topic ownership, intent deduplication and cooldown remain enforced. Manual prompts
+actively seek a useful gap and explain an empty result. See [manual review](context-rebuild.md).
 
 Associate a question with its topic and a normalized intent, such as “impact of access delay.”
 Check supplied asked/answered/discarded intents before proposing another wording. Exact matching

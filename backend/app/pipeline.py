@@ -34,7 +34,7 @@ from .topics import (
     add_topic_context,
     advance_topic_state,
     normalize_topic_routing,
-    question_ready,
+    question_block_reason,
     resolve_topics,
     validate_topics,
 )
@@ -516,10 +516,10 @@ class Pipeline:
             if topic_mode:
                 result = normalize_topic_routing(result, context)
                 validate_topics(result, context)
-                ready = question_ready(result, context)
+                question_block = question_block_reason(result, context)
                 result = resolve_topics(result, context)
-                if not ready:
-                    trace.metadata["question_decision"] = "topic_not_ready"
+                if result.question and question_block:
+                    trace.metadata["question_decision"] = question_block
                     result = result.model_copy(update={"question": "", "source_ids": []})
             error = ""
         except asyncio.CancelledError:
@@ -624,7 +624,7 @@ class Pipeline:
                     "prompt_version": (
                         "discovery-final-v1"
                         if context.get("review_kind") == "final"
-                        else "discovery-full-v4"
+                        else "discovery-full-v5"
                         if manual
                         else PROMPT_VERSION
                     ),

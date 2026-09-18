@@ -124,30 +124,48 @@ def resolve_topics(result, context):
     return proposal
 
 
-def question_ready(result, context):
+def question_block_reason(result, context):
     proposal = result.topic
     focus = proposal.focus_id
-    if proposal.action == "uncertain" or proposal.readiness != "ready" or not focus:
-        return False
+    explicit_live_review = (
+        context.get("scheduling_mode") == "manual" and context.get("review_kind") == "live"
+    )
+    ready = proposal.readiness == "ready" or (
+        explicit_live_review and proposal.readiness == "developing"
+    )
+    if proposal.action == "uncertain" or not ready or not focus:
+        return "topic_not_ready"
     if not proposal.reason.strip() or not context["new_source_ids"]:
-        return False
+        return "question_context_missing"
     # An index-only topic must be hydrated on a later batch before questions are considered.
     new = {t.topic_id for t in proposal.updates if t.topic_id.startswith("new:")}
     details = {t["id"]: t for t in context["topics"]["details"]}
     if focus not in new and (focus not in details or not details[focus]["questions_complete"]):
-        return False
+        return "question_history_incomplete"
     allowed_sources = set(proposal.source_ids)
     if focus in details:
         allowed_sources.update(details[focus].get("summary_sources", {}))
     for update in proposal.updates:
         if update.topic_id == focus:
             allowed_sources.update(update.source_ids)
+    if explicit_live_review and context.get("scope") == "full-transcript":
+        # Full review can cite any supplied passage, not only the summary's short citation set.
+        # validate_proposal independently rejects missing/foreign/superseded references.
+        allowed_sources.update(s["segment_id"] for s in context["segments"])
     if not set(result.source_ids) <= allowed_sources:
-        return False
+        return "question_evidence_outside_topic_context"
     intent = normalize_intent(proposal.question_intent)
-    return bool(intent) and not any(
+    if not intent:
+        return "question_intent_missing"
+    duplicate = any(
         q["topic_id"] == focus and q["intent"] == intent for q in context["topics"]["questions"]
     )
+
+    return "question_intent_duplicate" if duplicate else ""
+
+
+def question_ready(result, context):
+    return not question_block_reason(result, context)
 
 
 def add_topic_context(context, memory, catalog):

@@ -6,11 +6,11 @@ import httpx
 from pydantic import ValidationError
 
 from .analysis import (
-    FULL_SYSTEM,
     SYSTEM,
     TOPIC_SYSTEM,
     ProviderError,
     output_contract,
+    review_instructions,
     serialized_request,
 )
 from .analysis_errors import contract_errors
@@ -46,7 +46,7 @@ def request_payload(context, model):
         "store": False,
         "instructions": SYSTEM
         + (TOPIC_SYSTEM if context.get("strategy") == "topics-v1" else "")
-        + (FULL_SYSTEM if context.get("scope") == "full-transcript" else ""),
+        + review_instructions(context),
         "input": [{"role": "user", "content": json.dumps(context)}],
         "reasoning": {"effort": "low"},
         "max_output_tokens": 16384 if context.get("scope") == "full-transcript" else 4096,

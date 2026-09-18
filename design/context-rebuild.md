@@ -79,3 +79,21 @@ evidence and attribution remain strictly validated. No extra model call or autom
 
 Latency optimization is [planned separately](analysis-latency.md). Full-transcript scope and
 manual dispatch remain unchanged until a measured alternative is approved.
+
+## Manual follow-up behavior — 2026-09-17
+Manual live review explicitly asks for one useful grounded follow-up and a full discussion/workflow
+review. Its provider instructions are separate from final review's no-live-question instructions.
+A developing topic can support a manual follow-up when routing, source evidence and question intent
+are valid; uncertain routing/readiness, repeated intents, disabled questions and cooldown still block.
+Automatic analysis retains the ready-only pacing gate. No question is fabricated when the model
+returns none; diagnostics preserve model_empty instead of mislabeling it as topic_not_ready.
+Thread focus changes do not delete other topics. Manual input includes all topic summaries and
+accumulated workflows; updates omit unchanged artifacts and preserve them. The UI detail pane follows
+the active topic unless pinned; earlier threads remain available in the thread picker.
+Synthetic regressions cover consecutive reviews and retained topic/workflow identity. Real-provider
+question quality remains an evaluation task; no extra model request or hidden retry is introduced.
+
+Manual full-transcript questions may cite any validated supplied segment, including passages absent
+from the topic summary's small citation set. Automatic batches retain topic-context overlap checks.
+Routing, topic history, intent deduplication, cooldown and source ownership checks still apply.
+Diagnostics distinguish readiness, missing history, citation-scope and duplicate-intent suppression.
