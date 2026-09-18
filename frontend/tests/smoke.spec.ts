@@ -167,7 +167,7 @@ test("local interview completes with participants, AI notes and downloadable rep
   await page.getByText("AI notes", { exact: true }).click();
   await expect(page.locator(".ex-generated")).toContainText("Alex Test");
   await page.getByRole("button", { name: "Report", exact: true }).click();
-  await page.getByRole("button", { name: "End interview and generate report", exact: true }).click();
+  await page.getByRole("button", { name: "End interview and run final review", exact: true }).click();
   await expect(page.getByText("Report ready", { exact: true })).toBeVisible();
   const downloadEvent = page.waitForEvent("download");
   await page.getByRole("button", { name: "Download JSON", exact: true }).click();

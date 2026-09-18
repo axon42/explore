@@ -65,14 +65,15 @@ export function Reports({ mid, sid, stopped, onChanged }: {
   const selectedReport = list?.reports.find(r => r.id === selected) || list?.reports[0];
   return <section className="ex-reports">
     <div className="ex-report-toolbar"><div><h2>Meeting report</h2>
-      <p role="status">{generating ? "Generating report…" : list?.job.status === "complete" ? "Report ready" : list?.job.status === "failed" ? "Report failed" : "End the interview to generate its report."}</p></div>
+      <p role="status">{generating ? "Reviewing the full transcript and refining the report…" : list?.job.status === "complete" ? "Report ready" : list?.job.status === "failed" ? "Report failed" : "End the interview to generate its report."}</p></div>
       <button className="ex-primary" disabled={busy || generating || !list} onClick={async () => {
         setBusy(true); setError("");
         try { setList(await api(`/meetings/${mid}/finalize`, { method: "POST", body: JSON.stringify({ session_id: sid }) })); setSelected(""); onChanged(); }
         catch (e) { setError((e as Error).message); }
         finally { setBusy(false); }
-      }}>{stopped ? "Generate report" : "End interview and generate report"}</button>
+      }}>{stopped ? "Run final review" : "End interview and run final review"}</button>
     </div>
+    <p>Final review checks the full saved transcript against accumulated analysis. It uses one model call when inputs or analysis have changed and preserves earlier report revisions and human notes.</p>
     {(error || list?.job.error || loadError) && <p className="ex-record-notice" role="alert">{error || list?.job.error || "Report status could not refresh. Retrying…"}</p>}
     {selectedReport && <>
       <div className="ex-report-toolbar ex-report-version"><h3>Report {selectedReport.revision}{selectedReport.outdated ? " · Outdated" : ""}</h3>

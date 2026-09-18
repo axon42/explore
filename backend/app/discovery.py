@@ -102,7 +102,7 @@ class Discovery:
     def create(self, wid, title):
         return self.storage.create(title, wid, draft=True)
 
-    def context(self, sid):
+    def context(self, sid, full=False):
         with self.storage.connection() as db:
             session = require(db, "sessions", sid)
             meeting = require(db, "meetings", session["meeting_id"])
@@ -118,7 +118,7 @@ class Discovery:
                 for r in db.execute(
                     (
                         "SELECT id,body,revision FROM notes WHERE meeting_id=? ORDER BY "
-                        "created_at DESC LIMIT 10"
+                        "created_at DESC" + ("" if full else " LIMIT 10")
                     ),
                     (meeting["id"],),
                 )
@@ -129,7 +129,7 @@ class Discovery:
                     (
                         "SELECT id,text,CASE WHEN discarded=1 THEN 'discarded' "
                         "ELSE status END AS status FROM questions WHERE session_id=? ORDER BY "
-                        "created_at DESC LIMIT 30"
+                        "created_at DESC" + ("" if full else " LIMIT 30")
                     ),
                     (sid,),
                 )
@@ -375,6 +375,16 @@ class Discovery:
                     now(),
                 ),
             )
+            if context.get("scheduling_mode") == "manual":
+                db.execute(
+                    "UPDATE manual_analysis_jobs SET status=?,error=? WHERE id=? AND session_id=?",
+                    (
+                        "stale" if run["stale"] else "failed" if run["error"] else "succeeded",
+                        run["error"],
+                        context["job_id"],
+                        sid,
+                    ),
+                )
             if run["stale"] or run["error"] or not run["suggestion"]:
                 return
             result = run["suggestion"]

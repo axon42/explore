@@ -2,6 +2,7 @@
 
 import asyncio
 from typing import Literal
+from uuid import UUID
 
 from fastapi import APIRouter
 from fastapi.responses import Response
@@ -86,6 +87,21 @@ class AnalysisPreferencesUpdate(StrictBody):
     revision: int = Field(ge=0, strict=True)
 
 
+class ModelSelectionUpdate(StrictBody):
+    provider: Literal["mock", "gemini", "openai"]
+    model: str = Field(min_length=1, max_length=100, pattern=r"^[a-zA-Z0-9.-]+$")
+    revision: int = Field(ge=0, strict=True)
+
+
+class AnalysisSchedule(StrictBody):
+    mode: Literal["manual", "automatic"]
+    revision: int = Field(ge=0, strict=True)
+
+
+class ManualRequest(StrictBody):
+    request_id: UUID
+
+
 class Participant(StrictBody):
     participant_id: str | None = Field(default=None, min_length=1, max_length=200)
     speaker_id: str = Field(min_length=1, max_length=200)
@@ -148,6 +164,14 @@ def router(service, pipeline, stop_session):
         async with mutation:
             await service.read(lifecycle.start, mid, body.revision, body.mode)
             return await service.read(repo.detail, mid)
+
+    @api.get("/settings/model")
+    async def model_selection():
+        return await service.read(pipeline.models.view)
+
+    @api.patch("/settings/model")
+    async def update_model_selection(body: ModelSelectionUpdate):
+        return await service.read(pipeline.models.update, body.provider, body.model, body.revision)
 
     @api.get("/settings/analysis")
     async def analysis_preferences():
@@ -259,6 +283,16 @@ def router(service, pipeline, stop_session):
     async def delete_meeting(wid: str, mid: str, body: DeleteMeeting):
         async with mutation:
             return await service.read(archives.delete, wid, mid, body.revision, body.confirmed)
+
+    @api.patch("/sessions/{sid}/analysis-scheduling")
+    async def scheduling(sid: str, body: AnalysisSchedule):
+        async with mutation:
+            return await pipeline.set_schedule(sid, body.mode, body.revision)
+
+    @api.post("/sessions/{sid}/analyze", status_code=202)
+    async def analyze_now(sid: str, body: ManualRequest):
+        async with mutation:
+            return await pipeline.submit_manual(sid, str(body.request_id))
 
     @api.get("/meetings/{mid}/analysis")
     async def analysis(mid: str):

@@ -7,7 +7,23 @@ editing is available in Brief; Notes exposes structured AI notes; Report provide
 job status, immutable revision downloads and full transcript exports. Local interactive API documentation is at `/docs` on
 the backend (normally `http://127.0.0.1:8000/docs`).
 
-## Processing
+## Manual analysis (default for new meetings)
+
+Capture stores transcript continuously. **Analyze now** makes one full-finalized-transcript attempt;
+failures require explicit retry. All human notes and question history are included. Existing meetings
+retain Automatic scheduling. Switching modes does not dispatch a request.
+
+`PATCH /sessions/{sid}/analysis-scheduling` accepts `{mode: "manual" | "automatic", revision}`.
+`POST /sessions/{sid}/analyze` accepts a UUID `request_id` and returns a persistent receipt (202).
+Reuse the ID after ambiguous network failure; use a new ID for an explicit failed-attempt retry.
+`GET /sessions/{sid}/experiment` includes `scheduling`: mode/revision, last receipt, changed-input flag,
+coverage, pending segments and remaining calls. Archived/current-session ownership checks apply.
+
+Manual input is capped at 1 MB serialized UTF-8; no truncation. Output uses a full-review contract
+and 16,384-token cap. Attempts count against the existing allowance and timeout. See
+[full design](../design/context-rebuild.md) for schema bounds, validation and persistence semantics.
+
+## Automatic processing
 
 1. Save each accepted transcript revision. Interim text is displayed but not analyzed.
 2. Replay/injection collection waits for one second without another notification, up to five
@@ -45,7 +61,11 @@ before relying on automatic analysis.
 ## Finalization and revisions
 
 Stopping a session closes ingestion, cancels the live/replay worker, then starts a background report
-job that drains unprocessed finals through the same batch strategy. Replay **pause** does not end a
+job. Both scheduling modes run one full-transcript final review, including accumulated AI memory,
+before report assembly. Past ended meetings use **Run final review** in Report. An unchanged successful
+final review is reused; failures require an explicit retry. Failed, timed-out, invalid or incomplete
+live analysis does not prevent this new review: all saved final segments and the last accepted
+analysis are included. Provider availability, credentials and separate live/manual and final-review call limits still apply. Replay **pause** does not end a
 meeting. Reset/clear use cancellation without starting report generation. Report jobs use
 pending/generating/complete/failed states; failures are explicit and retries are user-initiated.
 
@@ -89,7 +109,8 @@ new frontend library is needed: the report reader renders validated step lists a
 
 ## Limits and validation
 
-The existing `ANALYSIS_MAX_CALLS` limit is shared by live analysis and finalization. Failed/cancelled
+`ANALYSIS_MAX_CALLS` limits live/manual analysis (default 100); `FINAL_REVIEW_MAX_CALLS`
+separately limits final review (default 2, configurable 0–10). Failed/cancelled
 attempts count; exhausting it can leave a report explicitly failed. Set a suitable per-session limit
 before longer experiments. There is no automatic provider fallback, paid smoke test, semantic quality
 claim, cost estimate, cross-meeting retrieval, automatic status change or new public-access capability.
@@ -130,7 +151,8 @@ questions suppress new questions until a future history-retrieval policy is impl
 
 Opening fragments wait for 35 words; processed sessions accept short corrections. All sources
 use four-second quiet / 25-second maximum batching in topic mode; maximum flushes update memory
-only. Model readiness and existing pending-speech/cooldown checks govern publication.
+only. Model readiness and cooldown checks govern publication. Automatic also suppresses questions
+on pending speech; Manual retains the explicit snapshot suggestion with a newer-speech notice.
 
 Run the offline comparison from `backend`: `.venv/bin/python -m app.topic_eval`.
 It uses temporary storage, no keys, and no provider network calls. See the
@@ -157,5 +179,27 @@ Validation errors carry a safe diagnostic code, also saved as `validation_code` 
 Examples include `topic_focus_changed`, `topic_routing_evidence`, and `question_intent_missing`.
 The transcript checkpoint never advances on rejection. First-topic `continue` is canonicalized
 only for an accepted new focus in an empty topic index; evidence validation remains strict.
-Existing failed batches remain pending: new dialogue retries live analysis; for a stopped
-meeting, **Report → Generate report** drains pending analysis within the existing call cap.
+Failed analysis leaves coverage pending. In **Manual**, click **Retry analysis** explicitly;
+new dialogue and report generation never trigger a model call. In **Automatic**, new dialogue
+can retry pending analysis and **Report → Generate report** drains remaining analysis for a
+stopped meeting within the call cap.
+
+## Provider selection
+`GET /settings/model` returns the selected provider/model/revision and configured model options.
+`PATCH /settings/model` accepts `{provider, model, revision}`; conflicts return 409 and unknown or
+unconfigured choices return 422. Selection makes no provider call. Running requests keep their
+original model; Manual can explicitly review unchanged text after a selection change.
+See [provider design](../design/model-selection.md).
+
+To compare models, open **Analysis mode → Analysis model** at the bottom left, choose a
+configured model, then click **Analyze now** in a Manual meeting. The selection applies to
+future requests across all meetings. Switching alone is free; analysis uses the selected API.
+See [Manual review](../design/context-rebuild.md) for the latest opportunity-certainty correction.
+
+Opportunity certainty is normalized consistently for finding cards and structured claims: both
+remain inferred hypotheses. Evidence and confirmed-attribution checks still run; malformed or
+unsupported proposals are not accepted. This applies to both providers and final/live review.
+
+Workflow connection counts that do not match adjacent step pairs are normalized to unknown order
+for every connection, after validating all supplied step/connection evidence. Supported steps remain;
+no positional alignment is guessed. Unknown references still reject the whole proposal.

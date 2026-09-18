@@ -117,3 +117,20 @@ live provider dashboard. This strip adds no automatic model requests or account-
 Acceptance: switching workspaces/meetings cannot show another scope's counters or bodies; empty,
 archived, reconnecting, stale, capped, timed-out and provider-unconfigured states are covered; Test
 mode visibility does not weaken backend permissions; raw metrics contain no transcript content.
+
+## Analysis-mode diagnostics
+[Manual analysis](context-rebuild.md) traces now include scheduling, scope and source watermark.
+Existing usage/timing and admin-only redacted payload previews remain; their 128 KiB body cap still
+applies. Complete per-workspace drilldown, applied-change summaries and Test-mode metrics are planned.
+
+Contract failures now include safe schema-field paths and count/length bounds, without rejected values
+or unknown object keys. `provider_output_limit` distinguishes oversized arrays/strings from invalid
+structure. Older traces containing only `too_long` cannot identify the field retroactively.
+
+Analysis traces also record `question_decision` and accepted/rejected spoken-question counts, without
+quote bodies. HTTP 503 is reported as temporary provider unavailability; it is not a credential or
+schema diagnosis. Manual failures preserve coverage and require explicit retry.
+
+Missing body previews mean contents were not retained, not that an empty request was sent.
+Use request/response byte counts and HTTP status to distinguish transport from recording.
+The Developer panel now explains this without speculating about a timeout after a 200 response.

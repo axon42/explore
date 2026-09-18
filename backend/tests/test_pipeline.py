@@ -11,6 +11,7 @@ from app.models import TranscriptEvent
 from app.pipeline import Pipeline, PlaybackCommand
 from app.service import Service
 from app.storage import Storage
+from tests.prepared import automatic_session
 from tests.test_api import payload
 
 
@@ -32,7 +33,7 @@ async def wait_until(predicate):
 
 
 async def test_next_pause_persistence_and_no_future_context(pipeline):
-    sid = pipeline.service.storage.create("Replay")["id"]
+    sid = automatic_session(pipeline.service.storage, "Replay")["id"]
     contexts = []
 
     async def record(context):
@@ -59,7 +60,7 @@ async def test_next_pause_persistence_and_no_future_context(pipeline):
 
 
 async def test_duplicate_coalescing_stale_result_and_stop(pipeline):
-    sid = pipeline.service.storage.create("Concurrency")["id"]
+    sid = automatic_session(pipeline.service.storage, "Concurrency")["id"]
     entered, release = asyncio.Event(), asyncio.Event()
     calls = []
 
@@ -89,15 +90,18 @@ async def test_duplicate_coalescing_stale_result_and_stop(pipeline):
 
 
 async def test_missing_key_and_call_limit(pipeline):
-    sid = pipeline.service.storage.create("No key")["id"]
-    pipeline.settings.analysis_provider = "gemini"
+    sid = automatic_session(pipeline.service.storage, "No key")["id"]
+    from app.model_selection import ModelSelection
+
     pipeline.settings = Settings(
         data_dir=pipeline.settings.data_dir, analysis_provider="gemini", gemini_api_key=""
     )
+    pipeline.models = ModelSelection(pipeline.service.storage, pipeline.settings)
     await pipeline.command(sid, PlaybackCommand(action="next"))
     await wait_until(lambda: pipeline.states[sid]["analysis_status"] == "unconfigured")
     assert pipeline.states[sid]["calls"] == 0
     pipeline.settings = Settings(data_dir=pipeline.settings.data_dir, analysis_max_calls=1)
+    pipeline.models = ModelSelection(pipeline.service.storage, pipeline.settings)
     await pipeline.command(sid, PlaybackCommand(action="next"))
     await wait_until(lambda: pipeline.states[sid]["analysis_status"] == "ready")
     await pipeline.command(sid, PlaybackCommand(action="next"))
@@ -154,7 +158,7 @@ async def test_provider_failure_does_not_block_ingestion(pipeline):
         raise httpx.ConnectError("test")
 
     pipeline.provider.analyze = fail
-    sid = pipeline.service.storage.create("Failure")["id"]
+    sid = automatic_session(pipeline.service.storage, "Failure")["id"]
     await pipeline.command(sid, PlaybackCommand(action="next"))
     await wait_until(lambda: pipeline.states[sid]["analysis_status"] == "error")
     await pipeline.command(sid, PlaybackCommand(action="next"))

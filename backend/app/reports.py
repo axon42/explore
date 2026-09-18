@@ -340,15 +340,32 @@ class Reports:
                 raise DomainError("incomplete_analysis", "Meeting context analysis is incomplete.")
             existing = db.execute(
                 "SELECT id FROM reports WHERE session_id=? AND input_version=? "
-                "AND context_version=?",
-                (sid, source["session"]["version"], source["meeting"]["context_version"]),
+                "AND context_version=? AND json_extract(payload,'$.analysis_version')=?",
+                (
+                    sid,
+                    source["session"]["version"],
+                    source["meeting"]["context_version"],
+                    memory["version"],
+                ),
             ).fetchone()
             if not existing:
                 revision = db.execute(
                     "SELECT COALESCE(MAX(revision),0)+1 FROM reports WHERE session_id=?", (sid,)
                 ).fetchone()[0]
-                report = self.strategy.build(source, provider)
+                used = {
+                    row[0]
+                    for row in db.execute(
+                        "SELECT DISTINCT provider FROM analysis_runs WHERE session_id=? "
+                        "AND json_extract(output_json,'$.error')='' "
+                        "AND json_extract(output_json,'$.stale')=0",
+                        (sid,),
+                    )
+                }
+                report = self.strategy.build(
+                    source, next(iter(used)) if len(used) == 1 else "mixed" if used else provider
+                )
                 report["revision"] = revision
+                report["analysis_version"] = memory["version"]
                 db.execute(
                     "INSERT INTO reports VALUES (?, ?, ?, ?, ?, ?, ?)",
                     (

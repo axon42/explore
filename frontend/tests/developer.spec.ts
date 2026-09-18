@@ -71,6 +71,7 @@ test('expired admin session removes already displayed diagnostics', async ({page
   await page.getByRole('button', {name: 'Developer', exact: true}).click();
   await page.getByRole('button', {name: /Private synthetic meeting/}).click();
   await expect(page.getByText('Sensitive synthetic dialogue', {exact: true})).toBeVisible();
+  await expect(page.getByText('Response body was not retained. Check HTTP status and response bytes above to see whether a response arrived.', {exact:true})).toBeVisible();
   authorized = false;
   await expect(page.getByRole('heading', {name: 'Unlock diagnostics'})).toBeVisible();
   await expect(page.getByText('Sensitive synthetic dialogue', {exact: true})).toHaveCount(0);

@@ -1,0 +1,22 @@
+.ex-analysis-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 20px;
+  padding: 18px 22px;
+  margin-bottom: 22px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+}
+.ex-analysis-choice { display: grid; gap: 8px; min-width: 150px; }
+.ex-analysis-choice label { font-size: 12px; color: var(--muted); }
+.ex-analysis-coverage { display: grid; gap: 6px; flex: 1; min-width: 240px; }
+.ex-analysis-coverage strong { font-size: 14px; }
+.ex-analysis-coverage span, .ex-analysis-coverage small { font-size: 12px; color: var(--muted); }
+.ex-analysis-controls > .ex-error { flex-basis: 100%; margin: 0; }
+@media (max-width: 640px) {
+  .ex-analysis-controls { gap: 14px; padding: 16px; }
+  .ex-analysis-choice, .ex-analysis-controls > button { width: 100%; }
+  .ex-analysis-coverage { min-width: 0; flex-basis: 100%; }
+}

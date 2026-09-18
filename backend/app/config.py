@@ -13,10 +13,13 @@ class Settings(BaseSettings):
     ingestion_token: SecretStr = SecretStr("")
     demo_enabled: bool = True
     analysis_strategy: Literal["legacy", "topics"] = "legacy"
-    analysis_provider: Literal["mock", "gemini"] = "mock"
+    analysis_provider: Literal["mock", "gemini", "openai"] = "mock"
+    openai_api_key: SecretStr = SecretStr("")
+    openai_model: str = Field(default="gpt-5.6-terra", pattern=r"^[a-zA-Z0-9.-]+$")
     gemini_api_key: SecretStr = SecretStr("")
     gemini_model: str = Field(default="gemini-3.1-flash-lite", pattern=r"^[a-zA-Z0-9.-]+$")
     analysis_max_calls: int = Field(default=100, ge=1, le=1000)
+    final_review_max_calls: int = Field(default=2, ge=0, le=10)
     analysis_timeout_seconds: int = Field(default=45, ge=5, le=60)
     backend_port: int = Field(default=8000, ge=1024, le=65535)
     frontend_port: int = Field(default=5173, ge=1024, le=65535)

@@ -29,6 +29,8 @@ def validation_failure(error):
     code = REASONS.get(str(error), "proposal_invalid")
     if code.startswith("topic_") or code.startswith("artifact_"):
         message = "Analysis returned inconsistent discussion-thread references."
+    elif code == "hypothesis_required":
+        message = "Analysis labeled an opportunity as a fact instead of a hypothesis."
     elif code == "workflow_transition_count":
         message = "Analysis returned workflow steps with mismatched connections."
     elif code == "question_intent_missing":
@@ -36,3 +38,31 @@ def validation_failure(error):
     else:
         message = "Analysis returned unsupported evidence or question references."
     return code, f"{message} Transcript is saved. Retry analysis. [{code}]"
+
+
+def contract_errors(exc, contract):
+    """Report schema-owned paths/counts only; never input values or arbitrary object keys."""
+    schema = contract.model_json_schema()
+    definitions = schema.get("$defs", {})
+    details = []
+    for error in exc.errors(include_input=False, include_url=False)[:12]:
+        node, path = schema, []
+        for part in error["loc"]:
+            if "$ref" in node:
+                node = definitions.get(node["$ref"].split("/")[-1], {})
+            if isinstance(part, int) and "items" in node:
+                path.append("[]")
+                node = node["items"]
+            elif isinstance(part, str) and part in node.get("properties", {}):
+                path.append(part)
+                node = node["properties"][part]
+            else:
+                path.append("<field>")
+                break
+        detail = {"type": error["type"], "path": ".".join(path).replace(".[]", "[]")}
+        for name in ("actual_length", "max_length", "min_length"):
+            value = error.get("ctx", {}).get(name)
+            if type(value) is int:
+                detail[name] = value
+        details.append(detail)
+    return details

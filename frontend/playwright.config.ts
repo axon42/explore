@@ -25,6 +25,7 @@ export default defineConfig({
       ANALYSIS_PROVIDER: "mock",
       ANALYSIS_STRATEGY: "legacy",
       GEMINI_API_KEY: "",
+      OPENAI_API_KEY: "",
       DEEPGRAM_API_KEY: "",
     },
     timeout: 60000,

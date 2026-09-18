@@ -17,7 +17,7 @@ tracked below with implementation status. Market research stays later; a reliabl
 | Later | Browser/Zoom integrations and cross-meeting research | Reuse ingestion/evidence contracts; pursue after the core interview experience is reliable |
 
 Website design can proceed alongside P0; a polished mock does not make the product ready to launch.
-Mac capture is confirmed working by the user on 2026-09-15 and runs until manually stopped. Transcription accuracy and downstream analysis remain separate quality work.
+Typical meetings are 45 minutes. Mac capture is confirmed working by the user on 2026-09-15 and runs until manually stopped. Transcription accuracy and downstream analysis remain separate quality work.
 
 ## Current baseline
 Transcript preservation is now a prerequisite for today's meeting: a separate append-only archive,
@@ -107,17 +107,33 @@ See [reliability design](../design/analysis-reliability.md).
    provider requests/responses when admin recording was enabled. Separate global operational logs.
    Show captured/analyzed coverage and budget exhaustion before tuning topic prompts.
 2. **P0 transcription/display:** Preserve end-of-speech metadata, evaluate utterance assembly and diarization,
-   and move correction actions out of transcript prose while retaining precise passage correction.
+   and evaluate recognition. Correction actions now use a separate passage picker; precise correction remains available.
 3. **P2 processing:** Durable SQLite job queue, transactional ACK, leases, idempotent commits,
    bounded retries/backoff, coalesced pending work, visible backlog and independent analysis cadence.
    Do not silently increase the current call limit or introduce unlimited retries.
 4. **P2 quality:** Labeled multi-topic replay and speaker/word accuracy evaluation; evidence-based
    model/prompt comparisons. Distinguish missing analysis coverage from incorrect routing.
-5. **Test-mode dashboard:** Always-visible Deepgram and Gemini health/usage metrics for the selected
+5. **P2 manual analysis — implemented locally:** New meetings use **Analyze now**: one full-transcript
+   attempt per click, durable receipts, visible coverage and unchanged call/timeout safeguards.
+   Existing meetings retain Automatic until changed. No hidden live calls/retries in Manual mode; explicit meeting end runs final review.
+   Full-request input/output bounds are explicit; real-model quality and latency rehearsal remains open.
+   See [design](../design/context-rebuild.md).
+6. **Test-mode dashboard:** Always-visible Deepgram and Gemini health/usage metrics for the selected
    meeting; exact model bodies remain admin-only. Measured/estimated/unknown values are distinct.
-6. **Later post-meeting review:** A budgeted full-transcript review for missed topics, contradictory
-   claims and incomplete notes/workflow reports. Save a new AI revision with evidence and a review
-   diff; do not rewrite original transcripts, human notes or confirmed roles. Not implemented now.
+7. **Post-meeting review — implemented locally:** One full-transcript review on explicit end or
+   from Report for past meetings, followed by an immutable report revision. Preserves original
+   transcript and human content. Review diffs and independent multi-pass verification remain later.
+   See [design](../design/meeting-reports.md).
 
 Prioritize these reliability gates before inviting the cofounder to a hosted pilot. Profiles,
 invitations, meeting tags, public website and market research remain on the roadmap.
+
+### Provider comparison — 2026-09-15
+Local model selection and OpenAI Responses integration are implemented; Gemini stays selected.
+Two synthetic Gemini quality checks passed, including fragmented speech. Real OpenAI verification
+and meeting-scale quality evaluation remain pending. No automatic fallback or market research added.
+
+## Next: manual analysis latency and lifecycle — planned 2026-09-16
+[Latency plan](../design/analysis-latency.md): measure phases, shorten output while retaining full
+transcript input, evaluate reasoning settings, then improve progress feedback. Separate meeting
+completion from capture/server lifecycle before the next real interview. No implementation yet.

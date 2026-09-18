@@ -50,7 +50,8 @@ test("confirm and correct speakers without changing text; accessible narrow layo
   await speakers.getByRole('button',{name:'Confirm speaker',exact:true}).click();
   await expect(transcript.locator('article').first()).toContainText(person.name);
   await expect(transcript.locator('.ex-speaker-role').first()).toHaveText('customer');
-  await transcript.getByRole('button',{name:'Correct speaker'}).first().click();
+  await transcript.locator('.ex-speaker-corrections summary').first().click();
+  await transcript.getByRole('button',{name:'Correct speaker for passage 1',exact:true}).first().click();
   const dialog = page.getByRole('dialog',{name:'Correct this passage'});
   await expect(dialog).toContainText('😀 Slow approval.');
   await selectOption(dialog.getByLabel('Person for this passage'), roster.participants[0].participant_id);
@@ -60,7 +61,11 @@ test("confirm and correct speakers without changing text; accessible narrow layo
   expect(changes[1]).toMatchObject({segment_id:'synthetic',segment_revision:0,span_index:0});
   await expect(transcript).toContainText('😀 Slow approval.');
   await page.setViewportSize({width:390,height:844});
-  await transcript.getByRole('button',{name:'Correct speaker'}).first().click();
+  expect((await transcript.locator('article > p').allTextContents()).join(' ')).not.toContain('Correct speaker');
+  await expect(transcript.locator('article > p button')).toHaveCount(0);
+  const picker = transcript.locator('.ex-speaker-corrections').first();
+  if ((await picker.getAttribute('open')) === null) await picker.locator('summary').click();
+  await transcript.getByRole('button',{name:'Correct speaker for passage 1',exact:true}).first().click();
   await expect(dialog).toBeVisible();
   const box = await dialog.boundingBox();
   expect(box!.x).toBeGreaterThanOrEqual(0); expect(box!.width).toBeLessThanOrEqual(390);

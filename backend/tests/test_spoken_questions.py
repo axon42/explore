@@ -9,6 +9,7 @@ from app.models import AttributedTranscriptEvent, TranscriptEvent
 from app.reports import Reports, report_markdown
 from app.spoken_questions import SpokenQuestion, accepted, anchors, view
 from app.storage import Storage
+from tests.prepared import automatic_session
 from tests.test_api import payload
 from tests.test_pipeline import pipeline, wait_until  # noqa: F401
 from tests.test_speakers import confirm, model  # noqa: F401
@@ -173,7 +174,7 @@ def test_confirmed_person_role_resolved_from_exact_spans(model):  # noqa: F811
 
 async def test_pipeline_detects_when_suggestions_disabled_and_rejects_stale(pipeline):  # noqa: F811
     store = pipeline.service.storage
-    s = store.create("Disabled suggestions")
+    s = automatic_session(store, "Disabled suggestions")
     Discovery(store).preferences(s["meeting_id"], 0, interval=0)
     arrived, release = asyncio.Event(), asyncio.Event()
 

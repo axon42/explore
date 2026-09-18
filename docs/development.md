@@ -185,3 +185,9 @@ The start response is meeting detail; identical concurrent starts return the sam
 authentication. Test mode does not bypass budgets or convert existing real sessions. Public legacy
 `POST /sessions` is retired with HTTP 409. Replay, injected dialogue, reset and legacy Zoom proof
 are backend-gated. Source family remains fixed for a session, so start a new meeting to change it.
+
+## Optional OpenAI analysis
+Set `OPENAI_API_KEY` in the server `.env` and restart. `OPENAI_MODEL` defaults to `gpt-5.6-terra`.
+Choose the model in bottom-left **Analysis settings → Analysis model**. Gemini remains selected
+until changed; `ANALYSIS_PROVIDER` is only the initial choice when no persisted selection exists.
+OpenAI API billing is separate from the application. No calls occur just by selecting a model.
